@@ -164,6 +164,7 @@ async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
   if (!cur.streamed && at) video.addEventListener('loadedmetadata', () => { video.currentTime = at; }, { once: true });
   aiInvalidate();
   yaw = 0; pitch = 0;
+  resetZoom(false);
   video.addEventListener('loadedmetadata', () => {
     if (token !== cur.token) return;
     const remembered = load('lumen.fmt.' + fileName, null);
@@ -332,12 +333,74 @@ function processFrame(inXR) {
   });
 }
 
-function flatRect() {
+// 2D zoom & pan. (zu, zv) = the point of the video (0..1, v measured from the bottom) shown at the
+// centre of the screen; zoom = 1 fits the whole video.
+const ZOOM_MAX = 8;
+let zoom = 1, zu = 0.5, zv = 0.5;
+
+function fitRect() {
   const cw = canvas.width, ch = canvas.height;
   const a = eyeAspect(video.videoWidth, video.videoHeight, F.stereo);
   let w = cw, h = cw / a;
   if (h > ch) { h = ch; w = ch * a; }
-  return [Math.round((cw - w) / 2), Math.round((ch - h) / 2), Math.round(w), Math.round(h)];
+  return [w, h];
+}
+
+function flatRect() {
+  const cw = canvas.width, ch = canvas.height;
+  const [bw, bh] = fitRect();
+  const w = bw * zoom, h = bh * zoom;
+  let x = cw / 2 - zu * w, y = ch / 2 - zv * h;
+  // Keep the picture covering the screen while zoomed (no empty gaps), centred when smaller.
+  x = w <= cw ? (cw - w) / 2 : Math.min(0, Math.max(cw - w, x));
+  y = h <= ch ? (ch - h) / 2 : Math.min(0, Math.max(ch - h, y));
+  return [Math.round(x), Math.round(y), Math.round(w), Math.round(h)];
+}
+
+function setRectPos(x, y, w, h) {   // store a rect position back as (zu, zv), clamped by flatRect()
+  zu = (canvas.width / 2 - x) / w;
+  zv = (canvas.height / 2 - y) / h;
+  const [cx, cy] = flatRect();
+  zu = (canvas.width / 2 - cx) / w;
+  zv = (canvas.height / 2 - cy) / h;
+}
+
+/** Zoom by a factor, keeping the video point under (px, py) — CSS pixels — fixed on screen. */
+function zoomAt(factor, px = canvas.clientWidth / 2, py = canvas.clientHeight / 2) {
+  if (!video.videoWidth) return;
+  const dpr = canvas.width / canvas.clientWidth;
+  const mx = px * dpr, my = canvas.height - py * dpr;          // GL coordinates (y up)
+  const [x, y, w, h] = flatRect();
+  const pu = (mx - x) / w, pv = (my - y) / h;                     // video point under the cursor
+  const nz = Math.max(1, Math.min(ZOOM_MAX, zoom * factor));
+  if (nz === zoom) return;
+  zoom = nz;
+  const [bw, bh] = fitRect();
+  const nw = bw * zoom, nh = bh * zoom;
+  setRectPos(mx - pu * nw, my - pv * nh, nw, nh);
+  if (zoom < 1.01) resetZoom(false);
+  showZoom();
+}
+
+function panBy(dxCss, dyCss) {
+  if (zoom <= 1) return;
+  const dpr = canvas.width / canvas.clientWidth;
+  const [x, y, w, h] = flatRect();
+  setRectPos(x + dxCss * dpr, y - dyCss * dpr, w, h);
+}
+
+function resetZoom(announce = true) {
+  zoom = 1; zu = 0.5; zv = 0.5;
+  showZoom();
+  if (announce) toast('Zoom reset');
+}
+
+function showZoom() {
+  const chip = $('zoomChip');
+  const on = F.projection === 'flat' && zoom > 1.01;
+  chip.hidden = !on;
+  chip.textContent = `${Math.round(zoom * 100)}%  ✕`;
+  document.body.classList.toggle('zoomed', on);
 }
 
 function viewParams(inXR) {
@@ -610,6 +673,7 @@ function setFormat(f, remember = $('rememberChk').checked) {
   if (f.swap === undefined) F.swap = $('swapChk').checked;
   if (remember && fileName) save('lumen.fmt.' + fileName, F);
   yaw = 0; pitch = 0; dirty = true;
+  resetZoom(false);
   syncUI();
   toast(fmtLabel());
 }
@@ -670,6 +734,7 @@ $('tileSel').onchange = (e) => { S.tile = +e.target.value; persist(); aiInvalida
 $('backendSel').onchange = (e) => { S.backend = e.target.value; persist(); toast('Reload the model to apply the new backend'); };
 $('fovRange').oninput = (e) => { S.fov = +e.target.value; $('fovOut').textContent = S.fov + '°'; persist(); };
 $('recenterBtn').onclick = recenter;
+$('zoomChip').onclick = () => resetZoom();
 $('statsBtn').onclick = toggleStats;
 $('helpBtn').onclick = () => { $('help').hidden = false; };
 $('helpClose').onclick = () => { $('help').hidden = true; };
@@ -695,7 +760,7 @@ function setSpeed(dir) {
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {});
 }
-function recenter() { yaw = 0; pitch = 0; if (xr.active) xr.recenter(); }
+function recenter() { yaw = 0; pitch = 0; if (zoom > 1) resetZoom(false); if (xr.active) xr.recenter(); }
 function toggleStats() { $('stats').hidden = !$('stats').hidden; renderStats(); }
 async function toggleVR() {
   if (xr.active) return xr.exit();
@@ -780,7 +845,7 @@ canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   const nearSplit = compare && S.upscale !== 'off' && Math.abs(e.clientX - splitPos * canvas.clientWidth) < 14;
   drag = { x: e.clientX, y: e.clientY, moved: false, split: nearSplit };
-  if (F.projection !== 'flat' && !nearSplit) canvas.classList.add('dragging');
+  if ((F.projection !== 'flat' || zoom > 1) && !nearSplit) canvas.classList.add('dragging');
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!drag) {
@@ -790,7 +855,8 @@ canvas.addEventListener('pointermove', (e) => {
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
   if (drag.split) { splitPos = Math.max(0.02, Math.min(0.98, e.clientX / canvas.clientWidth)); }
-  else if (F.projection !== 'flat') {
+  else if (F.projection === 'flat') panBy(dx, dy);
+  else {
     const k = (S.fov * Math.PI / 180) / canvas.clientHeight;
     yaw += dx * k;
     pitch = Math.max(-1.55, Math.min(1.55, pitch + dy * k));
@@ -807,8 +873,13 @@ canvas.addEventListener('pointerup', () => {
 let pendingClick = 0;
 canvas.addEventListener('dblclick', () => { clearTimeout(pendingClick); toggleFullscreen(); });
 canvas.addEventListener('wheel', (e) => {
-  if (F.projection === 'flat') return;
   e.preventDefault();
+  if (F.projection === 'flat') {
+    // Mouse wheel, touchpad scroll or pinch: zoom toward the pointer.
+    const step = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    zoomAt(Math.exp(-step * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY);
+    return;
+  }
   S.fov = Math.round(Math.max(30, Math.min(120, S.fov * Math.exp(e.deltaY * 0.001))));
   $('fovRange').value = S.fov; $('fovOut').textContent = S.fov + '°';
   persist();
@@ -834,15 +905,18 @@ window.addEventListener('keydown', (e) => {
   const handled = true;
   switch (k) {
     case ' ': case 'k': case 'K': togglePlay(); break;
-    case 'ArrowLeft': seekBy(-5); break;
-    case 'ArrowRight': seekBy(5); break;
+    case 'ArrowLeft': if (e.shiftKey && zoom > 1) panBy(60, 0); else seekBy(-5); break;
+    case 'ArrowRight': if (e.shiftKey && zoom > 1) panBy(-60, 0); else seekBy(5); break;
     case 'j': case 'J': seekBy(-10); break;
     case 'l': case 'L': seekBy(10); break;
     case ',': stepFrame(-1); break;
     case '.': stepFrame(1); break;
-    case 'ArrowUp': S.volume = Math.min(1, S.volume + 0.05); S.muted = false; persist(); syncUI(); toast(`Volume ${Math.round(S.volume * 100)}%`); break;
-    case 'ArrowDown': S.volume = Math.max(0, S.volume - 0.05); persist(); syncUI(); toast(`Volume ${Math.round(S.volume * 100)}%`); break;
+    case 'ArrowUp': if (e.shiftKey && zoom > 1) { panBy(0, 60); break; } S.volume = Math.min(1, S.volume + 0.05); S.muted = false; persist(); syncUI(); toast(`Volume ${Math.round(S.volume * 100)}%`); break;
+    case 'ArrowDown': if (e.shiftKey && zoom > 1) { panBy(0, -60); break; } S.volume = Math.max(0, S.volume - 0.05); persist(); syncUI(); toast(`Volume ${Math.round(S.volume * 100)}%`); break;
     case 'm': case 'M': $('muteBtn').click(); break;
+    case '+': case '=': if (F.projection === 'flat') zoomAt(1.25); else { S.fov = Math.max(30, S.fov - 5); syncUI(); } break;
+    case '-': case '_': if (F.projection === 'flat') zoomAt(0.8); else { S.fov = Math.min(120, S.fov + 5); syncUI(); } break;
+    case '0': resetZoom(); break;
     case 'n': case 'N': playNext(false); break;
     case 'b': case 'B': playPrev(); break;
     case 'h': case 'H': $('shuffleBtn').click(); break;
@@ -1213,4 +1287,4 @@ syncUI();
 if (S.upscale === 'ai') { S.upscale = 'gpu'; syncUI(); }   // AI is re-enabled explicitly each session (model load can be slow)
 
 // Expose for automated tests / debugging.
-window.__lumen = { renderer, ai, F, S, queue, cur, setFormat, setUpscale, openPayload, addAndPlay, seekTo, loadModel, state: () => ({ yaw, pitch, aiValid, lastScale, time: curTime(), total: totalTime() }) };
+window.__lumen = { renderer, ai, F, S, queue, cur, zoomAt, panBy, resetZoom, zoomState: () => ({ zoom, zu, zv, rect: flatRect() }), setFormat, setUpscale, openPayload, addAndPlay, seekTo, loadModel, state: () => ({ yaw, pitch, aiValid, lastScale, time: curTime(), total: totalTime() }) };

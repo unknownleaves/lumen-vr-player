@@ -55,6 +55,10 @@ button.ghost.sm { padding: 7px 11px; font-size: 13px; font-weight: 500; border-r
 /* ---------- top bar ---------- */
 #top { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 14px 18px 30px; background: linear-gradient(rgba(0,0,0,.6), transparent); pointer-events: none; transition: opacity .25s; }
+.badge.zoom { pointer-events: auto; cursor: pointer; color: var(--ink); border-color: rgba(255,255,255,.2); }
+.badge.zoom:hover { background: rgba(255,255,255,.12); }
+body.zoomed #stage { cursor: grab; }
+body.zoomed #stage.dragging { cursor: grabbing; }
 body:not(.loaded) #top { display: none; }
 .title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 3px #000; }
 .badges { display: flex; gap: 6px; }

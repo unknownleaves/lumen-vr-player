@@ -123,7 +123,9 @@ sudo apt install ./dist/lumen-vr-player_1.0.0_amd64.deb
 | `U` | Cycle upscaling: Off → GPU → AI |
 | `C` | A/B compare original vs enhanced (drag the divider) |
 | `V` | Enter / exit VR headset |
-| Drag · mouse wheel | Look around · zoom (360°/180° videos) |
+| Mouse wheel · drag | **2D:** zoom in/out toward the pointer · drag to move around the zoomed picture. **360°/180°:** zoom · look around |
+| `+` `−` · `0` | Zoom in / out · reset zoom (or click the zoom badge) |
+| `Shift` + arrows | Move around while zoomed |
 | `R` | Recenter |
 | `[` `]` | Playback speed |
 | `I` · `S` · `?` | Stats · settings · help |

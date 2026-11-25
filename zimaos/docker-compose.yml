@@ -1,0 +1,66 @@
+name: lumen-vr-player
+services:
+  lumen-vr-player:
+    image: ghcr.io/unknownleaves/lumen-vr-player:latest
+    container_name: lumen-vr-player
+    restart: unless-stopped
+    ports:
+      - target: 8080
+        published: "8095"
+        protocol: tcp
+      - target: 8443
+        published: "8445"
+        protocol: tcp
+    environment:
+      LUMEN_PASSWORD: ""
+    volumes:
+      - type: bind
+        source: /DATA/Media
+        target: /media
+        read_only: true
+      - type: bind
+        source: /DATA/AppData/lumen-vr-player/models
+        target: /models
+      - type: bind
+        source: /DATA/AppData/lumen-vr-player/config
+        target: /config
+    x-casaos:
+      envs:
+        - container: LUMEN_PASSWORD
+          description:
+            en_us: Optional password (user name "lumen"). Leave empty for no password.
+      ports:
+        - container: "8080"
+          description:
+            en_us: Web player (http)
+        - container: "8443"
+          description:
+            en_us: Secure web player (https), needed for VR headsets
+      volumes:
+        - container: /media
+          description:
+            en_us: Folder with your videos
+        - container: /models
+          description:
+            en_us: AI upscaling models (.onnx)
+        - container: /config
+          description:
+            en_us: HTTPS certificate
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: lumen-vr-player
+  author: unknownleaves
+  developer: unknownleaves
+  category: Media
+  icon: https://raw.githubusercontent.com/unknownleaves/lumen-vr-player/main/src/assets/icon.png
+  tagline:
+    en_us: VR, 3D and 360° video player with AI upscaling
+  description:
+    en_us: Play your NAS videos (2D, 3D, 180° and 360° VR) in any browser or VR headset, with real-time GPU upscaling and AI super-resolution.
+  title:
+    en_us: Lumen VR Player
+  port_map: "8095"
+  scheme: http
+  index: /

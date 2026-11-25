@@ -156,3 +156,26 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 #updBanner { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px;
   background: var(--glass); backdrop-filter: blur(18px); border: 1px solid rgba(124,240,200,.35); box-shadow: 0 14px 40px rgba(0,0,0,.5); z-index: 45; font-size: 13px; }
 button.primary.sm { padding: 7px 12px; font-size: 13px; border-radius: 8px; }
+
+/* ---------- server library ---------- */
+#library { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); z-index: 35; }
+.lib-card { width: min(820px, 94vw); height: min(640px, 86vh); display: flex; flex-direction: column; border-radius: 16px; background: var(--glass);
+  backdrop-filter: blur(20px) saturate(1.3); border: 1px solid var(--line); box-shadow: 0 24px 70px rgba(0,0,0,.6); overflow: hidden; }
+.lib-head { display: flex; align-items: center; gap: 12px; padding: 14px 14px 10px 20px; }
+.lib-head h2 { margin: 0; font-size: 16px; }
+.lib-head input { flex: 1; padding: 9px 12px; border-radius: 9px; background: rgba(255,255,255,.06); border: 1px solid var(--line); color: var(--ink); outline: none; }
+.lib-head input:focus { border-color: rgba(124,240,200,.45); }
+#libCrumbs { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 18px 10px; font-size: 13px; color: var(--dim); }
+#libCrumbs button { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+#libCrumbs button:hover { color: var(--ink); background: rgba(255,255,255,.07); }
+#libCrumbs span { color: var(--faint); }
+#libList { flex: 1; overflow-y: auto; padding: 0 8px 8px; border-top: 1px solid var(--line); }
+#libList button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; text-align: left; font-size: 14px; }
+#libList button:hover, #libList button:focus-visible { background: rgba(255,255,255,.07); outline: none; }
+#libList button svg { color: var(--dim); }
+#libList button.folder svg { color: var(--accent); }
+#libList .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#libList .meta { color: var(--faint); font: 12px ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+#libList .tag { font: 600 10px/1 ui-monospace, Menlo, Consolas, monospace; padding: 3px 6px; border-radius: 5px; color: var(--accent); border: 1px solid rgba(124,240,200,.3); }
+#libList .empty { padding: 40px; text-align: center; color: var(--faint); font-size: 14px; }
+.lib-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px 12px 20px; border-top: 1px solid var(--line); font-size: 12px; color: var(--faint); }

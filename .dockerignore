@@ -1,0 +1,10 @@
+node_modules
+dist
+test
+docs
+tools
+build
+models
+.git
+.github
+*.md

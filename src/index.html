@@ -230,6 +230,22 @@
   <button id="updBannerClose" class="icon sm" title="Later"><svg><use href="#i-close"/></svg></button>
 </div>
 
+<div id="library" hidden>
+  <div class="lib-card">
+    <div class="lib-head">
+      <h2>Library</h2>
+      <input id="libSearch" type="search" placeholder="Search videos…" autocomplete="off">
+      <button id="libClose" class="icon sm" title="Close"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <nav id="libCrumbs"></nav>
+    <div id="libList"></div>
+    <div class="lib-foot">
+      <span id="libHint"></span>
+      <button id="libLocal" class="ghost sm">Open a file from this device…</button>
+    </div>
+  </div>
+</div>
+
 <div id="drop" hidden><div>Drop to play</div></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="fileInput" accept="video/*,.mkv,.mov,.m4v,.webm" hidden>

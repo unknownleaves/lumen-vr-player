@@ -6,6 +6,7 @@ import { perspective, multiply, invert, rotX, rotY } from './math.js';
 
 const $ = (id) => document.getElementById(id);
 const host = window.lumen || null;            // Electron bridge (absent when opened in a plain browser)
+let server = null;                            // set when served by the Docker / NAS server edition
 const video = $('video');
 const canvas = $('stage');
 
@@ -79,6 +80,7 @@ async function openFile(file) {
 
 async function openDialog() {
   if (host) openPayload(await host.openVideoDialog());
+  else if (server) openLibrary();
   else $('fileInput').click();
 }
 
@@ -333,9 +335,15 @@ $('emptyModelBtn').onclick = browseModel;
 $('modelFolder').onclick = () => (host ? host.openModelsFolder() : toast('Models folder is available in the desktop app'));
 $('modelFolder').hidden = !host;
 
+async function listModels() {
+  if (host) return host.listModels();
+  if (server) { try { return await (await fetch('/api/models')).json(); } catch { return []; } }
+  return [];
+}
+
 async function refreshModelList(selectUrl = S.lastModel) {
   const sel = $('modelSel');
-  const list = host ? await host.listModels() : [];
+  const list = await listModels();
   sel.innerHTML = '';
   sel.append(new Option(ai.ready ? `${ai.modelName} (loaded)` : '— none loaded —', ''));
   for (const m of list) sel.append(new Option(m.name, m.url));
@@ -346,8 +354,10 @@ refreshModelList();
 
 async function ensureAI() {
   if (ai.ready) { aiLoop(); return true; }
+  const list = await listModels();
+  const last = list.find((m) => m.url === S.lastModel);
+  if (last) return loadModel(last.url, last.name);
   if (S.lastModel && host) return loadModel(S.lastModel, decodeURIComponent(S.lastModel.split('%2F').pop().split('%5C').pop()));
-  const list = host ? await host.listModels() : [];
   if (list.length) return loadModel(list[0].url, list[0].name);
   setAIStatus('Choose an ONNX super-resolution model to enable AI upscaling (see README for recommended models).', 'err');
   $('panel').hidden = false;
@@ -631,7 +641,7 @@ video.addEventListener('pause', wake);
 
 // Keyboard
 window.addEventListener('keydown', (e) => {
-  if (e.target.matches('input[type=text], select') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.matches('input[type=text], input[type=search], select') || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key;
   const handled = true;
   switch (k) {
@@ -663,7 +673,7 @@ window.addEventListener('keydown', (e) => {
     case '[': setSpeed(-1); toast(`Speed ${video.playbackRate}×`); break;
     case ']': setSpeed(1); toast(`Speed ${video.playbackRate}×`); break;
     case '?': $('help').hidden = !$('help').hidden; break;
-    case 'Escape': $('help').hidden = true; $('panel').hidden = true; closePops(); break;
+    case 'Escape': $('help').hidden = true; $('panel').hidden = true; $('library').hidden = true; closePops(); break;
     default: return;
   }
   if (handled) e.preventDefault();
@@ -679,6 +689,106 @@ function toast(msg, ms = 1800) {
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// ------------------------------------------------------------------------------------------------
+// Server edition: media library
+let libPath = load('lumen.libPath', '/');
+const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="currentColor" opacity=".85"/></svg>';
+const ICON_VIDEO = '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/></svg>';
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtSize = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB');
+function vrTag(name) {
+  const f = detectFormat(name, 0, 0);
+  if (f.projection === 'flat') return f.stereo === 'mono' ? '' : '3D';
+  return { equi360: '360°', equi180: '180°', fisheye180: '180°' }[f.projection] + (f.stereo !== 'mono' ? ' 3D' : '');
+}
+
+async function openLibrary(path = libPath) {
+  $('library').hidden = false;
+  if (!$('libSearch').value) await showFolder(path);
+  setTimeout(() => $('libSearch').focus(), 50);
+}
+
+async function showFolder(path, query = '') {
+  const list = $('libList');
+  list.innerHTML = '<div class="empty">Loading…</div>';
+  let data;
+  try {
+    const r = await fetch(query ? '/api/library?q=' + encodeURIComponent(query) : '/api/library?path=' + encodeURIComponent(path));
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+  } catch {
+    if (path !== '/' && !query) return showFolder('/');
+    list.innerHTML = '<div class="empty">Could not read the media folder.</div>';
+    return;
+  }
+  if (!query) { libPath = data.path; save('lumen.libPath', libPath); }
+  // breadcrumbs
+  const crumbs = $('libCrumbs');
+  crumbs.innerHTML = '';
+  if (query) crumbs.innerHTML = `<span>Results for “${esc(query)}”</span>`;
+  else {
+    const parts = data.path.split('/').filter(Boolean);
+    const mk = (label, p) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => showFolder(p); return b; };
+    crumbs.append(mk('Media', '/'));
+    parts.forEach((part, i) => {
+      const sep = document.createElement('span'); sep.textContent = '›'; crumbs.append(sep);
+      crumbs.append(mk(part, '/' + parts.slice(0, i + 1).join('/')));
+    });
+  }
+  list.innerHTML = '';
+  if (!query && data.path !== '/') {
+    const up = document.createElement('button');
+    up.className = 'folder';
+    up.innerHTML = `${ICON_FOLDER}<span class="name">..</span>`;
+    up.onclick = () => showFolder(data.path.split('/').slice(0, -1).join('/') || '/');
+    list.append(up);
+  }
+  for (const f of data.folders) {
+    const b = document.createElement('button');
+    b.className = 'folder';
+    b.innerHTML = `${ICON_FOLDER}<span class="name">${esc(f.name)}</span>`;
+    b.onclick = () => showFolder(f.path);
+    list.append(b);
+  }
+  for (const v of data.videos) {
+    const b = document.createElement('button');
+    const tag = vrTag(v.name);
+    b.innerHTML = `${ICON_VIDEO}<span class="name">${esc(v.name)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}<span class="meta">${fmtSize(v.size)}</span>`;
+    b.onclick = () => { $('library').hidden = true; openPayload({ url: v.url, name: v.name }); };
+    list.append(b);
+  }
+  if (!data.folders.length && !data.videos.length) list.innerHTML += `<div class="empty">${query ? 'No matching videos.' : 'No videos in this folder.'}</div>`;
+}
+
+let libSearchTimer = 0;
+$('libSearch').addEventListener('input', (e) => {
+  clearTimeout(libSearchTimer);
+  const q = e.target.value.trim();
+  libSearchTimer = setTimeout(() => showFolder(libPath, q), 250);
+});
+$('libClose').onclick = () => { $('library').hidden = true; };
+$('library').onclick = (e) => { if (e.target.id === 'library') $('library').hidden = true; };
+$('libLocal').onclick = () => { $('library').hidden = true; $('fileInput').click(); };
+
+async function detectServer() {
+  if (host) return;
+  try {
+    const r = await fetch('/api/info', { cache: 'no-store' });
+    const info = r.ok ? await r.json() : null;
+    if (!info || !info.server) return;
+    server = info;
+    $('openBtn').lastChild.textContent = 'Browse library';
+    $('modelFolder').hidden = true;
+    const insecure = location.protocol === 'http:' && info.https;
+    $('libHint').textContent = insecure
+      ? `For VR headsets use https://${location.hostname}:${info.https}`
+      : `Lumen server ${info.version}`;
+    if (insecure && $('vrBtn').disabled) $('vrBtn').title = `VR needs the secure address: https://${location.hostname}:${info.https}`;
+    refreshModelList();
+  } catch { /* plain static hosting */ }
+}
+detectServer();
 
 // ------------------------------------------------------------------------------------------------
 // Updates (desktop app only)

@@ -49,6 +49,27 @@ Raise `"version"` in `package.json` (e.g. `1.0.0` → `1.0.1`) and push to `main
 
 GitHub Actions builds every installer, stamps it with the tag's version, and publishes a release with the update files (`latest*.yml`, `*.blockmap`). Installed copies see the new version within a few hours, or right away with **Check now**.
 
+## ZimaOS / NAS server (Docker)
+
+The server edition runs on your NAS and streams your video folders to any browser on your network: PC, phone, TV, or the **Meta Quest browser for full VR**. It uses the same player, GPU upscaling and AI upscaling (the upscaling runs on the viewing device).
+
+**ZimaOS:**
+1. Open the ZimaOS dashboard, click **+** (top right of the apps) → **Install a customized app**.
+2. Click the **Import** icon (top right of the dialog) and paste the contents of [`zimaos/docker-compose.yml`](zimaos/docker-compose.yml).
+3. Check the **Volumes**. `/media` points to `/DATA/Media`; change it to wherever your videos are. Then click **Install**.
+4. Open the app from the dashboard, or go to `http://<zimaos-ip>:8095`.
+
+**VR headsets** (Quest, Pico…): open `https://<zimaos-ip>:8445` in the headset's browser. The first time, choose *Advanced → Proceed* to accept the server's own certificate. Open a video and press the **VR** button. Browsers only allow VR on secure (https) pages.
+
+Set `LUMEN_PASSWORD` to require a password (user name `lumen`). Put `.onnx` AI models in `/DATA/AppData/lumen-vr-player/models`.
+
+**Updating:** each release also publishes `ghcr.io/unknownleaves/lumen-vr-player:latest`. On ZimaOS, open the app's settings and use **Check then update** (or reinstall); the image is re-pulled. Any other Docker host works too:
+
+```bash
+docker run -d --name lumen-vr-player -p 8095:8080 -p 8445:8443 \
+  -v /path/to/videos:/media:ro -v lumen-config:/config ghcr.io/unknownleaves/lumen-vr-player:latest
+```
+
 ## Screenshots
 
 | A/B compare (original \| enhanced) | Settings |

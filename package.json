@@ -1,7 +1,7 @@
 {
   "name": "lumen-vr-player",
   "productName": "Lumen VR Player",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cross-platform 2D/3D/180\u00b0/360\u00b0 VR video player with real-time GPU upscaling and AI super-resolution.",
   "main": "main.js",
   "author": "Lumen VR Player contributors",
@@ -18,7 +18,8 @@
     "dist:win": "electron-builder --win nsis portable --x64 --arm64",
     "dist:mac": "electron-builder --mac dmg zip --universal",
     "dist:linux": "electron-builder --linux AppImage deb rpm tar.gz --x64 --arm64",
-    "dist:deb": "electron-builder --linux deb --x64 --arm64"
+    "dist:deb": "electron-builder --linux deb --x64 --arm64",
+    "server": "node server/server.js"
   },
   "dependencies": {
     "onnxruntime-web": "^1.22.0",
@@ -43,7 +44,12 @@
       "!**/*.map",
       "!**/*.md",
       "!node_modules/onnxruntime-web/lib/**",
-      "!node_modules/onnxruntime-web/types/**"
+      "!node_modules/onnxruntime-web/types/**",
+      "!server/**",
+      "!zimaos/**",
+      "!Dockerfile",
+      "!.dockerignore",
+      "!install.ps1"
     ],
     "extraResources": [
       {

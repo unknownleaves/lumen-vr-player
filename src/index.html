@@ -240,6 +240,27 @@
   </section>
 
   <section>
+    <h3>Playback</h3>
+    <label>Speed (kept for every video until you change it)
+      <select id="speedSel">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1">1× (normal)</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+      </select>
+    </label>
+    <label>Sound when slowed down or sped up
+      <select id="slowSoundSel">
+        <option value="pitch">Normal voice pitch (can sound warbly when slow)</option>
+        <option value="smooth">Smooth, like slow motion (voices deeper)</option>
+      </select>
+    </label>
+  </section>
+
+  <section>
     <h3>View</h3>
     <label>Field of view <output id="fovOut">90°</output>
       <input type="range" id="fovRange" min="30" max="120" step="1" value="90">

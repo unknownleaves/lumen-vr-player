@@ -27,7 +27,7 @@ const canvas = $('stage');
 // State
 const DEFAULTS = {
   upscale: 'gpu', scale: 'auto', sharpness: 0.5, desktopStereo: 'left',
-  aiApply: 'paused', tile: 256, backend: 'auto', fov: 90, volume: 1, muted: false, lastModel: '', gyro: true,
+  aiApply: 'paused', tile: 256, backend: 'auto', fov: 90, volume: 1, muted: false, lastModel: '', gyro: true, speed: 1, slowSound: 'pitch', slowTipShown: false,
 };
 const S = Object.assign({}, DEFAULTS, load('lumen.settings', {}));
 const F = { projection: 'flat', stereo: 'mono', swap: false };   // current file's format
@@ -823,11 +823,43 @@ function togglePlay() {
 }
 function seekBy(s) { if (totalTime()) seekTo(curTime() + s); }
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
-function setSpeed(dir) {
-  const i = Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(video.playbackRate) + dir));
-  video.playbackRate = SPEEDS[i] ?? 1;
-  $('speedBtn').textContent = video.playbackRate + '×';
+// The chosen speed sticks: it carries over to the next video (and stream restarts after seeking),
+// and is remembered for next time. defaultPlaybackRate is what the browser applies to each new video.
+function applySpeed(v, announce = false) {
+  v = SPEEDS.includes(+v) ? +v : 1;
+  S.speed = v;
+  video.defaultPlaybackRate = v;
+  video.playbackRate = v;
+  $('speedBtn').textContent = v + '×';
+  $('speedBtn').classList.toggle('on', v !== 1);
+  $('speedSel').value = String(v);
+  persist();
+  if (announce) { toast(`Speed ${v}×`); maybeSlowTip(v); }
 }
+// How sound behaves at other speeds:
+//  'pitch'  – keep voices at normal pitch (the engine time-stretches the audio; can sound warbly when slowed a lot)
+//  'smooth' – play the sound slowed down like slow motion: no artifacts, but voices get deeper (higher when sped up)
+function applySlowSound(mode) {
+  S.slowSound = mode === 'smooth' ? 'smooth' : 'pitch';
+  video.preservesPitch = S.slowSound === 'pitch';
+  if ('mozPreservesPitch' in video) video.mozPreservesPitch = video.preservesPitch;
+  $('slowSoundSel').value = S.slowSound;
+  persist();
+}
+function maybeSlowTip(v) {
+  if (v < 1 && S.slowSound === 'pitch' && !S.slowTipShown) {
+    S.slowTipShown = true;
+    persist();
+    setTimeout(() => toast('Sound warbly when slowed down? Settings → Playback → Sound: “Smooth”', 6000), 1200);
+  }
+}
+function setSpeed(dir) {
+  const i = Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(S.speed) + dir));
+  applySpeed(SPEEDS[i], true);
+}
+// Some engines reset the rate when a new source loads; put the chosen speed back.
+video.addEventListener('loadedmetadata', () => { if (video.playbackRate !== S.speed) video.playbackRate = S.speed; });
+video.addEventListener('play', () => { if (video.playbackRate !== S.speed) video.playbackRate = S.speed; });
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {});
 }
@@ -863,7 +895,11 @@ $('fwdBtn').onclick = () => seekBy(10);
 $('fullBtn').onclick = toggleFullscreen;
 $('vrBtn').onclick = toggleVR;
 $('cmpBtn').onclick = () => { compare = !compare; if (compare && S.upscale === 'off') setUpscale('gpu'); syncUI(); };
-$('speedBtn').onclick = () => { const i = SPEEDS.indexOf(video.playbackRate); video.playbackRate = SPEEDS[(i + 1) % SPEEDS.length]; $('speedBtn').textContent = video.playbackRate + '×'; };
+$('speedBtn').onclick = () => applySpeed(SPEEDS[(SPEEDS.indexOf(S.speed) + 1) % SPEEDS.length], true);
+$('speedSel').onchange = (e) => applySpeed(e.target.value, true);
+$('slowSoundSel').onchange = (e) => { applySlowSound(e.target.value); toast(S.slowSound === 'smooth' ? 'Sound: smooth slow motion (deeper voices)' : 'Sound: normal voice pitch'); };
+applySlowSound(S.slowSound);
+applySpeed(S.speed);
 $('muteBtn').onclick = () => { S.muted = !S.muted; if (!S.muted && S.volume === 0) S.volume = 0.5; persist(); syncUI(); };
 $('volume').oninput = (e) => { S.volume = +e.target.value; S.muted = S.volume === 0; persist(); syncUI(); };
 video.addEventListener('play', () => { $('playBtn').innerHTML = '<svg><use href="#i-pause"/></svg>'; });
@@ -1061,8 +1097,8 @@ window.addEventListener('keydown', (e) => {
       setFormat({ projection: n.projection, stereo: n.stereo });
       break;
     }
-    case '[': setSpeed(-1); toast(`Speed ${video.playbackRate}×`); break;
-    case ']': setSpeed(1); toast(`Speed ${video.playbackRate}×`); break;
+    case '[': setSpeed(-1); break;
+    case ']': setSpeed(1); break;
     case '?': $('help').hidden = !$('help').hidden; break;
     case 'Escape': $('help').hidden = true; $('panel').hidden = true; $('library').hidden = true; toggleQueue(false); closePops(); break;
     default: return;

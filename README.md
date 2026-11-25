@@ -140,7 +140,7 @@ sudo apt install ./dist/lumen-vr-player_1.0.0_amd64.deb
 | `+` `−` · `0` | Zoom in / out · reset zoom (or click the zoom badge) |
 | `Shift` + arrows | Move around while zoomed |
 | `R` | Recenter |
-| `[` `]` | Playback speed |
+| `[` `]` | Playback speed. It stays the same for the following videos and after restarting; also in **Settings → Playback**, where you can choose how sound behaves when slowed down (normal voice pitch, or smooth slow-motion sound) |
 | `I` · `S` · `?` | Stats · settings · help |
 
 In a headset: **trigger** plays/pauses and **grip** recenters.

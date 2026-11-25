@@ -78,14 +78,20 @@
         "nsis",
         "portable"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "shortcutName": "Lumen VR Player",
-      "artifactName": "Lumen-VR-Player-Setup-${version}.${ext}"
+      "artifactName": "Lumen-VR-Player-Setup-${version}.${ext}",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
     },
     "mac": {
       "target": [
@@ -105,7 +111,7 @@
         "tar.gz"
       ],
       "category": "AudioVideo",
-      "icon": "build/icon.png",
+      "icon": "build/icons",
       "maintainer": "Lumen VR Player <noreply@example.com>",
       "synopsis": "VR video player with AI upscaling",
       "mimeTypes": [
@@ -115,7 +121,14 @@
         "video/x-matroska",
         "video/ogg"
       ],
-      "artifactName": "lumen-vr-player-${version}-${arch}.${ext}"
+      "artifactName": "lumen-vr-player-${version}-${arch}.${ext}",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "Lumen VR Player",
+          "Name": "Lumen VR Player",
+          "Comment": "VR video player with AI upscaling"
+        }
+      }
     },
     "deb": {
       "depends": [

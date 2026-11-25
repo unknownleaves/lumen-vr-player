@@ -6,6 +6,13 @@ const { fileResponse, safeJoin } = require('./lib/serve');
 const { setupUpdater } = require('./lib/updater');
 
 const APP_ROOT = __dirname;
+const APP_ID = 'io.lumen.vrplayer';   // must match "appId" in package.json
+
+// Windows groups taskbar buttons, pins and jump lists by AppUserModelID. Using the same ID as the
+// installer's shortcuts means the running window, the Start-menu entry and a pinned taskbar icon
+// are all recognised as one app and always show the Lumen icon.
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
+const WINDOW_ICON = path.join(APP_ROOT, 'src', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
 const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv'];
 // Cross-origin isolation lets ONNX Runtime use multi-threaded WASM (SharedArrayBuffer).
 const ISOLATION = {
@@ -86,7 +93,7 @@ function createWindow() {
     minHeight: 420,
     backgroundColor: '#07080b',
     title: 'Lumen VR Player',
-    icon: path.join(APP_ROOT, 'build', 'icon.png'),
+    icon: WINDOW_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(APP_ROOT, 'preload.js'),

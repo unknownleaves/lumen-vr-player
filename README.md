@@ -17,7 +17,15 @@ A desktop video player for **Windows, macOS, Linux and Debian/Ubuntu** that play
 
 ## Download
 
-Ready-made installers are on the **[Releases page](https://github.com/unknownleaves/lumen-vr-player/releases)**:
+**Windows: one command (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/unknownleaves/lumen-vr-player/main/install.ps1 | iex
+```
+
+This downloads the latest installer, installs it for your user (no admin needed), adds Start-menu and desktop shortcuts, and launches the app. To get the portable `.exe` instead, save `install.ps1` and run `powershell -ExecutionPolicy Bypass -File .\install.ps1 -Portable`.
+
+Or grab an installer from the **[Releases page](https://github.com/unknownleaves/lumen-vr-player/releases)**:
 
 | System | File |
 |---|---|

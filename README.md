@@ -45,11 +45,23 @@ The app checks GitHub Releases at startup and every 6 hours. You can turn this o
 | Windows installer, Linux AppImage, Linux `.deb` | Downloads in the background. Click **Restart & update**, or it installs the next time you quit. |
 | macOS, Windows portable, Linux `.tar.gz` | Shows a notice with a **Download** button for the new version. macOS can only update itself if the app is code-signed. |
 
+### Android signing
+
+The APK is signed with a private key stored in two repository secrets, `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` (Settings → Secrets and variables → Actions). Without them the APK is skipped and the rest of the release still builds. Keep a backup of the key: Android only accepts updates signed with the same key.
+
 ### Publishing a new version
 
 Raise `"version"` in `package.json` (e.g. `1.0.0` → `1.0.1`) and push to `main`. If there's no release for that version yet, GitHub Actions publishes one automatically. Running **Actions → Build installers → Run workflow** with a version number, or pushing a `v1.0.1` tag, does the same.
 
 GitHub Actions builds every installer, stamps it with the tag's version, and publishes a release with the update files (`latest*.yml`, `*.blockmap`). Installed copies see the new version within a few hours, or right away with **Check now**.
+
+## Android
+
+Download **`Lumen-VR-Player-x.y.z.apk`** from the [Releases page](https://github.com/unknownleaves/lumen-vr-player/releases/latest) on your phone, open it, and allow "Install unknown apps" for your browser when Android asks. Updates show up inside the app: tap **Download**, then open the new APK.
+
+* **Open videos** plays files stored on the phone. It handles the formats Android can decode itself (MP4, WebM, and on most phones MKV with H.264/HEVC).
+* **Connect to server** links the app to your ZimaOS server (enter its address, e.g. `192.168.1.50`). You can then browse its library, play any format (the server converts what the phone can't play), and share playlists with your other devices.
+* Pinch to zoom, drag to move around, and tilt or turn the phone to look around 360°/180° videos. The Back button closes panels first.
 
 ## ZimaOS / NAS server (Docker)
 

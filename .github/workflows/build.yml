@@ -114,9 +114,69 @@ jobs:
             ghcr.io/unknownleaves/lumen-vr-player:latest
             ghcr.io/unknownleaves/lumen-vr-player:${{ needs.plan.outputs.version }}
 
+  android:
+    needs: plan
+    if: needs.plan.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Signing key missing
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD secrets are not set, so no APK is built."
+      - uses: actions/setup-node@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          gradle-version: '8.11.1'
+      - name: Bundle the player into the APK
+        if: env.HAS_KEY == 'true'
+        shell: bash
+        run: |
+          npm install --no-save --ignore-scripts --no-audit --no-fund "onnxruntime-web@$(node -p "require('./package.json').dependencies['onnxruntime-web']")"
+          W=android/app/src/main/assets/www
+          mkdir -p $W/node_modules/onnxruntime-web/dist
+          cp -r src $W/
+          D=node_modules/onnxruntime-web/dist
+          cp $D/ort.webgpu.min.mjs $W/node_modules/onnxruntime-web/dist/
+          cp $D/ort-wasm-simd-threaded.jsep.* $W/node_modules/onnxruntime-web/dist/ 2>/dev/null || cp $D/*.wasm $D/ort-wasm*.mjs $W/node_modules/onnxruntime-web/dist/
+          ls -la $W/node_modules/onnxruntime-web/dist
+      - name: Build signed APK
+        if: env.HAS_KEY == 'true'
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          LUMEN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          APP_VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          V="$APP_VERSION"
+          IFS=. read -r MA MI PA <<< "${V%%-*}"
+          CODE=$(( MA * 10000 + MI * 100 + PA ))
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          export LUMEN_KEYSTORE="$RUNNER_TEMP/release.p12"
+          gradle -p android assembleRelease -PappVersionName="$V" -PappVersionCode="$CODE" --no-daemon --stacktrace
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/Lumen-VR-Player-$V.apk"
+          rm -f "$RUNNER_TEMP/release.p12"
+      - uses: actions/upload-artifact@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          name: lumen-vr-player-android
+          path: dist/*.apk
+
   release:
-    needs: [plan, build]
-    if: needs.plan.outputs.release == 'true'
+    needs: [plan, build, android]
+    # Publish when the desktop builds succeed, even if the Android build was skipped or failed.
+    if: always() && needs.plan.outputs.release == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

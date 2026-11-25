@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' app: blob: data:; script-src 'self' app: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' app: blob:; connect-src 'self' app: blob: data:; worker-src 'self' app: blob:; img-src 'self' app: blob: data:">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' app: blob: data:; script-src 'self' app: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' app: blob:; connect-src 'self' app: blob: data: https://api.github.com; worker-src 'self' app: blob:; img-src 'self' app: blob: data:">
 <title>Lumen VR Player</title>
 <link rel="icon" href="assets/icon.png">
 <link rel="stylesheet" href="styles.css">
@@ -47,6 +47,7 @@
   <p class="lede">Any video — MP4, MKV, AVI, WMV and more — plus 3D, 180° and 360° VR, with real-time GPU upscaling and AI super-resolution.</p>
   <div class="cta">
     <button id="openBtn" class="primary"><svg><use href="#i-open"/></svg>Open videos</button>
+    <button id="serverBtn" class="ghost" hidden><svg><use href="#i-sphere"/></svg>Connect to server</button>
     <button id="emptyModelBtn" class="ghost"><svg><use href="#i-spark"/></svg>Load AI model</button>
   </div>
   <p class="hint">or drop a file anywhere · <kbd>O</kbd> open · <kbd>?</kbd> shortcuts</p>
@@ -189,6 +190,15 @@
     <p class="status" id="aiStatus">No model loaded. Real-ESRGAN / Compact / SPAN models exported to ONNX work.</p>
   </section>
 
+  <section id="serverRow" hidden>
+    <h3>Server</h3>
+    <p class="status" id="serverStatus"></p>
+    <div class="btns" style="margin-top:10px">
+      <button id="serverConnectBtn" class="ghost sm">Connect to a server…</button>
+      <button id="serverDisconnect" class="ghost sm" hidden>Disconnect</button>
+    </div>
+  </section>
+
   <section id="updSection">
     <h3>Updates</h3>
     <p class="ver">Version <b id="verText">—</b></p>
@@ -206,6 +216,7 @@
     <label>Field of view <output id="fovOut">90°</output>
       <input type="range" id="fovRange" min="30" max="120" step="1" value="90">
     </label>
+    <label class="check" id="gyroRow" hidden><input type="checkbox" id="gyroChk" checked> Look around by moving the phone (360°/180°)</label>
     <div class="btns">
       <button id="recenterBtn" class="ghost sm">Recenter (R)</button>
       <button id="statsBtn" class="ghost sm">Stats (I)</button>
@@ -290,6 +301,16 @@
       <span id="libHint"></span>
       <button id="libLocal" class="ghost sm">Open a file from this device…</button>
     </div>
+  </div>
+</div>
+
+<div id="serverDlg" hidden>
+  <div class="help-card">
+    <div class="panel-head"><h2>Connect to your Lumen server</h2></div>
+    <p class="lede-sm">Enter your ZimaOS / NAS address, e.g. <b>192.168.1.50</b> (port 8095 is added for you). Your phone must be on the same network.</p>
+    <input id="serverAddr" class="q-input" type="text" inputmode="url" autocomplete="off" placeholder="192.168.1.50">
+    <p class="lede-sm" id="serverMsg"></p>
+    <div class="btns"><button id="serverGo" class="primary sm">Connect</button><button id="serverCancel" class="ghost sm">Cancel</button></div>
   </div>
 </div>
 

@@ -9,6 +9,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const host = window.lumen || null;            // Electron bridge (absent when opened in a plain browser)
 let server = null;                            // set when served by the Docker / NAS server edition
+const android = window.LumenAndroid || null;  // Android app bridge
 const video = $('video');
 const canvas = $('stage');
 
@@ -16,7 +17,7 @@ const canvas = $('stage');
 // State
 const DEFAULTS = {
   upscale: 'gpu', scale: 'auto', sharpness: 0.5, desktopStereo: 'left',
-  aiApply: 'paused', tile: 256, backend: 'auto', fov: 90, volume: 1, muted: false, lastModel: '',
+  aiApply: 'paused', tile: 256, backend: 'auto', fov: 90, volume: 1, muted: false, lastModel: '', gyro: true,
 };
 const S = Object.assign({}, DEFAULTS, load('lumen.settings', {}));
 const F = { projection: 'flat', stereo: 'mono', swap: false };   // current file's format
@@ -415,6 +416,46 @@ function viewParams(inXR) {
   };
 }
 
+
+// ------------------------------------------------------------------------------------------------
+// Phones & tablets: look around 360°/180° videos by moving the device ("magic window").
+let gyroQ = null, gyroYaw0 = null, gyroSeen = false;
+function quatFromDevice(alpha, beta, gamma, orient) {
+  const d = Math.PI / 180;
+  const x = beta * d, y = alpha * d, z = -gamma * d;              // Euler order YXZ (same as three.js)
+  const c1 = Math.cos(x / 2), c2 = Math.cos(y / 2), c3 = Math.cos(z / 2);
+  const s1 = Math.sin(x / 2), s2 = Math.sin(y / 2), s3 = Math.sin(z / 2);
+  let q = [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 - s1 * s2 * c3, c1 * c2 * c3 + s1 * s2 * s3];
+  const mul = (a, b) => [
+    a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+    a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+    a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+    a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+  q = mul(q, [-Math.SQRT1_2, 0, 0, Math.SQRT1_2]);                  // camera looks out of the back of the device
+  const o = -orient * d / 2;
+  return mul(q, [0, 0, Math.sin(o), Math.cos(o)]);                  // screen rotation
+}
+function quatToMat([x, y, z, w]) {
+  const m = new Float32Array(16);
+  m[0] = 1 - 2 * (y * y + z * z); m[1] = 2 * (x * y + z * w); m[2] = 2 * (x * z - y * w);
+  m[4] = 2 * (x * y - z * w); m[5] = 1 - 2 * (x * x + z * z); m[6] = 2 * (y * z + x * w);
+  m[8] = 2 * (x * z + y * w); m[9] = 2 * (y * z - x * w); m[10] = 1 - 2 * (x * x + y * y);
+  m[15] = 1;
+  return m;
+}
+function gyroMatrix() {
+  if (!gyroQ || !S.gyro || F.projection === 'flat') return null;
+  const m = quatToMat(gyroQ);
+  if (gyroYaw0 === null) gyroYaw0 = Math.atan2(m[8], m[10]);         // start facing the video's front
+  return multiply(rotY(-gyroYaw0), m);
+}
+window.addEventListener('deviceorientation', (e) => {
+  if (e.alpha == null) return;
+  const orient = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  gyroQ = quatFromDevice(e.alpha, e.beta, e.gamma, orient);
+  if (!gyroSeen) { gyroSeen = true; $('gyroRow').hidden = false; }
+});
+
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
@@ -424,7 +465,8 @@ function resize() {
 function drawDesktop() {
   const cw = canvas.width, ch = canvas.height;
   const P = perspective(S.fov * Math.PI / 180, cw / ch);
-  const V = multiply(rotX(-pitch), rotY(-yaw));
+  const R = gyroMatrix();
+  const V = R ? invert(multiply(rotY(yaw), R)) : multiply(rotX(-pitch), rotY(-yaw));
   const view = viewParams(false);
   renderer.draw({
     ...view,
@@ -734,6 +776,8 @@ $('tileSel').onchange = (e) => { S.tile = +e.target.value; persist(); aiInvalida
 $('backendSel').onchange = (e) => { S.backend = e.target.value; persist(); toast('Reload the model to apply the new backend'); };
 $('fovRange').oninput = (e) => { S.fov = +e.target.value; $('fovOut').textContent = S.fov + '°'; persist(); };
 $('recenterBtn').onclick = recenter;
+$('gyroChk').checked = S.gyro;
+$('gyroChk').onchange = (e) => { S.gyro = e.target.checked; gyroYaw0 = null; persist(); };
 $('zoomChip').onclick = () => resetZoom();
 $('statsBtn').onclick = toggleStats;
 $('helpBtn').onclick = () => { $('help').hidden = false; };
@@ -760,7 +804,16 @@ function setSpeed(dir) {
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {});
 }
-function recenter() { yaw = 0; pitch = 0; if (zoom > 1) resetZoom(false); if (xr.active) xr.recenter(); }
+document.addEventListener('fullscreenchange', () => {
+  if (!android) return;
+  const wide = !video.videoWidth || F.projection !== 'flat' || eyeAspect(video.videoWidth, video.videoHeight, F.stereo) >= 1.1;
+  android.setLandscape(!!document.fullscreenElement && wide);
+});
+if (android) {
+  video.addEventListener('play', () => android.keepScreenOn(true));
+  for (const ev of ['pause', 'ended']) video.addEventListener(ev, () => android.keepScreenOn(false));
+}
+function recenter() { yaw = 0; pitch = 0; gyroYaw0 = null; if (zoom > 1) resetZoom(false); if (xr.active) xr.recenter(); }
 function toggleStats() { $('stats').hidden = !$('stats').hidden; renderStats(); }
 async function toggleVR() {
   if (xr.active) return xr.exit();
@@ -841,6 +894,39 @@ function renderStats() {
 
 // Look-around, compare divider, click-to-play
 let drag = null;
+// Two-finger pinch: zoom 2D videos (around the fingers) or change the field of view in 360°/180°.
+const touches = new Map();
+let pinch = null, pinched = false;
+function pinchState() {
+  const [a, b] = [...touches.values()];
+  return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 1) pinched = false;
+    if (touches.size === 2) { pinch = pinchState(); pinched = true; }
+  }
+}, true);
+canvas.addEventListener('pointermove', (e) => {
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2 && pinch) {
+    e.stopImmediatePropagation();
+    const now = pinchState();
+    const f = now.d / Math.max(1, pinch.d);
+    if (F.projection === 'flat') { zoomAt(f, now.x, now.y); panBy(now.x - pinch.x, now.y - pinch.y); }
+    else { S.fov = Math.round(Math.max(30, Math.min(120, S.fov / f))); $('fovRange').value = S.fov; $('fovOut').textContent = S.fov + '°'; }
+    pinch = now;
+  }
+}, true);
+const endTouch = (e) => {
+  touches.delete(e.pointerId);
+  if (touches.size < 2) pinch = null;
+};
+canvas.addEventListener('pointerup', endTouch, true);
+canvas.addEventListener('pointercancel', endTouch, true);
+
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   const nearSplit = compare && S.upscale !== 'off' && Math.abs(e.clientX - splitPos * canvas.clientWidth) < 14;
@@ -864,7 +950,7 @@ canvas.addEventListener('pointermove', (e) => {
   drag.x = e.clientX; drag.y = e.clientY;
 });
 canvas.addEventListener('pointerup', () => {
-  if (drag && !drag.moved && !drag.split) {
+  if (drag && !drag.moved && !drag.split && !pinched) {
     pendingClick = setTimeout(togglePlay, 220);   // cancelled by dblclick
   }
   drag = null;
@@ -1212,6 +1298,33 @@ $('libAddAll').onclick = () => addAndPlay(libVideos.map((x) => ({ ...x })), { pl
 $('library').onclick = (e) => { if (e.target.id === 'library') { $('library').hidden = true; addMode = false; } };
 $('libLocal').onclick = () => { $('library').hidden = true; $('fileInput').click(); };
 
+// Android: connect the app to a Lumen server (ZimaOS) to browse its library and use its conversion.
+if (android) {
+  $('serverBtn').hidden = false;
+  $('serverRow').hidden = false;
+  const saved = android.getServer();
+  $('serverStatus').textContent = saved ? `Connected to ${saved}` : 'Not connected — playing files on this phone.';
+  $('serverDisconnect').hidden = !saved;
+  const openDlg = () => { $('serverDlg').hidden = false; $('serverAddr').value = saved || load('lumen.lastServer', ''); setTimeout(() => $('serverAddr').focus(), 50); };
+  $('serverBtn').onclick = openDlg;
+  $('serverConnectBtn').onclick = openDlg;
+  $('serverCancel').onclick = () => { $('serverDlg').hidden = true; };
+  $('serverDisconnect').onclick = () => android.disconnectServer();
+  $('serverGo').onclick = async () => {
+    let addr = $('serverAddr').value.trim();
+    if (!addr) return;
+    if (!/^https?:\/\//i.test(addr)) addr = 'http://' + addr;
+    if (!/:\d+(\/|$)/.test(addr.replace(/^https?:\/\//, ''))) addr = addr.replace(/\/$/, '') + (addr.startsWith('https') ? ':8445' : ':8095');
+    const url = addr.replace(/\/+$/, '') + '/src/index.html';
+    $('serverMsg').textContent = 'Connecting…';
+    save('lumen.lastServer', $('serverAddr').value.trim());
+    android.connectServer(url);
+  };
+  $('serverAddr').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $('serverGo').click(); });
+  const err = new URLSearchParams(location.search).get('serverError');
+  if (err) { toast('Could not reach the server: ' + err, 5000); }
+}
+
 async function detectServer() {
   if (host) return;
   try {
@@ -1233,7 +1346,40 @@ detectServer();
 
 // ------------------------------------------------------------------------------------------------
 // Updates (desktop app only)
-const upd = host && host.updates;
+const upd = (host && host.updates) || (android ? androidUpdater() : null);
+
+/** Android: check GitHub Releases for a newer APK and offer to download it. */
+function androidUpdater() {
+  let cb = () => {}, status = { state: 'idle', current: android.getVersion(), mode: 'manual', packaged: true }, timer = 0;
+  const send = (s) => { status = { ...s, current: android.getVersion(), mode: 'manual', packaged: true }; cb(status); };
+  const cmp = (a, b) => {
+    const pa = String(a).replace(/^v/, '').split(/[.-]/).map((n) => parseInt(n, 10) || 0), pb = String(b).replace(/^v/, '').split(/[.-]/).map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? 1 : -1;
+    return 0;
+  };
+  async function check() {
+    send({ state: 'checking' });
+    try {
+      const r = await fetch('https://api.github.com/repos/unknownleaves/lumen-vr-player/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+      if (r.status === 404) return send({ state: 'up-to-date' });
+      if (!r.ok) throw new Error('GitHub responded ' + r.status);
+      const rel = await r.json();
+      const v = String(rel.tag_name || '').replace(/^v/, '');
+      const apk = (rel.assets || []).find((a) => a.name.toLowerCase().endsWith('.apk'));
+      if (v && apk && cmp(v, android.getVersion()) > 0) send({ state: 'available', version: v, url: apk.browser_download_url, notes: (rel.body || '').slice(0, 600) });
+      else send({ state: 'up-to-date' });
+    } catch (e) { send({ state: 'error', message: /fetch|network/i.test(e.message) ? 'No internet connection' : e.message }); }
+  }
+  return {
+    get: async () => status,
+    check,
+    install: async () => android.openUrl(status.url || 'https://github.com/unknownleaves/lumen-vr-player/releases/latest'),
+    openPage: async () => android.openUrl('https://github.com/unknownleaves/lumen-vr-player/releases/latest'),
+    setAuto: async (on) => { clearInterval(timer); if (on) { setTimeout(check, 3000); timer = setInterval(check, 6 * 3600 * 1000); } return true; },
+    onStatus: (f) => { cb = f; },
+    onShow: () => {},
+  };
+}
 let updPackaged = true, updDismissed = '';
 function renderUpdate(s) {
   if (!s) return;
@@ -1282,6 +1428,15 @@ if (!upd) {
   upd.onStatus(renderUpdate);
   upd.get().then(renderUpdate);
 }
+
+window.__lumenBack = () => {
+  for (const id of ['help', 'serverDlg', 'library', 'panel', 'queue']) {
+    if (!$(id).hidden) { $(id).hidden = true; syncPlaylistButtons(); return true; }
+  }
+  if (document.fullscreenElement) { document.exitFullscreen(); return true; }
+  if (zoom > 1) { resetZoom(false); return true; }
+  return false;
+};
 
 syncUI();
 if (S.upscale === 'ai') { S.upscale = 'gpu'; syncUI(); }   // AI is re-enabled explicitly each session (model load can be slow)

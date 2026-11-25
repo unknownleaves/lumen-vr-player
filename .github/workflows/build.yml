@@ -92,6 +92,8 @@ jobs:
     needs: plan
     if: needs.plan.outputs.release == 'true'
     runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
       - uses: actions/checkout@v4
       - name: Set app version
@@ -119,6 +121,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: lumen-vr-player-*     # only the installers, not Docker's build record
           path: artifacts
           merge-multiple: true
       - uses: softprops/action-gh-release@v2

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' app: blob: data:; script-src 'self' app: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' app: blob:; connect-src 'self' app: blob: data:; worker-src 'self' app: blob:; img-src 'self' app: blob: data:">
+<title>Lumen VR Player</title>
+<link rel="icon" href="../build/icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z" fill="currentColor"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M11 6 4 12l7 6V6zm9 0-7 6 7 6V6z" fill="currentColor"/></symbol>
+  <symbol id="i-fwd" viewBox="0 0 24 24"><path d="m13 6 7 6-7 6V6zM4 6l7 6-7 6V6z" fill="currentColor"/></symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="m16.5 9.5 5 5m0-5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.6 4.9-1.9-.6a7 7 0 0 1-.6 1.5l.9 1.8-1.7 1.7-1.8-.9a7 7 0 0 1-1.5.6l-.6 1.9h-2.4l-.6-1.9a7 7 0 0 1-1.5-.6l-1.8.9-1.7-1.7.9-1.8a7 7 0 0 1-.6-1.5l-1.9-.6v-2.4l1.9-.6a7 7 0 0 1 .6-1.5l-.9-1.8 1.7-1.7 1.8.9a7 7 0 0 1 1.5-.6l.6-1.9h2.4l.6 1.9a7 7 0 0 1 1.5.6l1.8-.9 1.7 1.7-.9 1.8a7 7 0 0 1 .6 1.5l1.9.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-vr" viewBox="0 0 24 24"><path d="M3 8.5C3 7.1 4.1 6 5.5 6h13C19.9 6 21 7.1 21 8.5v6c0 1.4-1.1 2.5-2.5 2.5h-3.2l-1.8-2.6a1.8 1.8 0 0 0-3 0L8.7 17H5.5A2.5 2.5 0 0 1 3 14.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="8" cy="11.2" r="1.6" fill="currentColor"/><circle cx="16" cy="11.2" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-sphere" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><ellipse cx="12" cy="12" rx="8.5" ry="3.4" fill="none" stroke="currentColor" stroke-width="1.5"/><ellipse cx="12" cy="12" rx="3.4" ry="8.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5L10 13l-6.5-2L10 9zM19 2l.8 2.2L22 5l-2.2.8L19 8l-.8-2.2L16 5l2.2-.8z" fill="currentColor"/></symbol>
+  <symbol id="i-split" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v18" stroke="currentColor" stroke-width="1.8"/><path d="M12 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-7z" fill="currentColor" opacity=".35"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<canvas id="stage"></canvas>
+<video id="video" playsinline preload="auto"></video>
+
+<div id="compareLabels" hidden><span>Original</span><span>Enhanced</span></div>
+
+<section id="empty">
+  <div class="brand">
+    <img class="mark" src="../build/icon.png" alt="">
+    <h1>Lumen<span>VR Player</span></h1>
+  </div>
+  <p class="lede">Flat, 3D, 180° and 360° video — with real-time GPU upscaling and AI super-resolution.</p>
+  <div class="cta">
+    <button id="openBtn" class="primary"><svg><use href="#i-open"/></svg>Open video</button>
+    <button id="emptyModelBtn" class="ghost"><svg><use href="#i-spark"/></svg>Load AI model</button>
+  </div>
+  <p class="hint">or drop a file anywhere · <kbd>O</kbd> open · <kbd>?</kbd> shortcuts</p>
+  <ul class="chips">
+    <li>2D</li><li>3D SBS / TB</li><li>360° mono / stereo</li><li>VR180</li><li>Fisheye 180</li><li>OpenXR headsets</li>
+  </ul>
+</section>
+
+<header id="top">
+  <div class="title" id="title"></div>
+  <div class="badges">
+    <span class="badge" id="fmtBadge"></span>
+    <span class="badge accent" id="upBadge"></span>
+  </div>
+</header>
+
+<div id="stats" hidden></div>
+
+<footer id="controls">
+  <div class="seek">
+    <div class="track"><div class="buffered" id="buffered"></div><div class="played" id="played"></div></div>
+    <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek">
+    <div class="tip" id="seekTip">0:00</div>
+  </div>
+  <div class="row">
+    <button id="playBtn" class="icon" title="Play / Pause (Space)"><svg><use href="#i-play"/></svg></button>
+    <button id="backBtn" class="icon sm" title="Back 10 s (J)"><svg><use href="#i-back"/></svg></button>
+    <button id="fwdBtn" class="icon sm" title="Forward 10 s (L)"><svg><use href="#i-fwd"/></svg></button>
+    <div class="vol">
+      <button id="muteBtn" class="icon sm" title="Mute (M)"><svg><use href="#i-vol"/></svg></button>
+      <input id="volume" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume">
+    </div>
+    <div class="time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
+    <div class="spacer"></div>
+    <div class="pop-wrap">
+      <button id="fmtBtn" class="pill" title="Video format (P)"><svg><use href="#i-sphere"/></svg><span id="fmtLabel">2D</span></button>
+      <div class="pop" id="fmtPop" hidden></div>
+    </div>
+    <div class="pop-wrap">
+      <button id="upBtn" class="pill" title="Upscaling (U)"><svg><use href="#i-spark"/></svg><span id="upLabel">GPU</span></button>
+      <div class="pop" id="upPop" hidden></div>
+    </div>
+    <button id="cmpBtn" class="icon sm" title="Compare original / enhanced (C)"><svg><use href="#i-split"/></svg></button>
+    <button id="speedBtn" class="pill mono" title="Speed ([ / ])">1×</button>
+    <button id="vrBtn" class="pill" title="Enter headset (V)" disabled><svg><use href="#i-vr"/></svg><span>VR</span></button>
+    <button id="gearBtn" class="icon sm" title="Settings (S)"><svg><use href="#i-gear"/></svg></button>
+    <button id="fullBtn" class="icon sm" title="Fullscreen (F)"><svg><use href="#i-full"/></svg></button>
+  </div>
+</footer>
+
+<aside id="panel" hidden>
+  <div class="panel-head"><h2>Settings</h2><button id="panelClose" class="icon sm"><svg><use href="#i-close"/></svg></button></div>
+
+  <section>
+    <h3>Video format</h3>
+    <label>Projection
+      <select id="projSel">
+        <option value="flat">Flat (normal video)</option>
+        <option value="equi360">360° equirectangular</option>
+        <option value="equi180">180° equirectangular (VR180)</option>
+        <option value="fisheye180">180° fisheye</option>
+      </select>
+    </label>
+    <label>Stereo 3D
+      <select id="stereoSel">
+        <option value="mono">Mono (2D)</option>
+        <option value="sbs">Side-by-side (left | right)</option>
+        <option value="tb">Top-bottom (over / under)</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="swapChk"> Swap eyes</label>
+    <label>3D on a flat monitor
+      <select id="deskStereoSel">
+        <option value="left">Show left eye</option>
+        <option value="anaglyph">Red / cyan anaglyph</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="rememberChk" checked> Remember format for this file</label>
+  </section>
+
+  <section>
+    <h3>Enhancement</h3>
+    <label>Upscaling
+      <select id="upSel">
+        <option value="off">Off (bilinear)</option>
+        <option value="gpu">GPU real-time (edge-adaptive + sharpen)</option>
+        <option value="ai">AI super-resolution (ONNX model)</option>
+      </select>
+    </label>
+    <label>Output scale
+      <select id="scaleSel">
+        <option value="auto">Auto (match display)</option>
+        <option value="1">1× (sharpen only)</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+        <option value="3">3×</option>
+        <option value="4">4×</option>
+      </select>
+    </label>
+    <label>Sharpness <output id="sharpOut">50%</output>
+      <input type="range" id="sharpRange" min="0" max="1" step="0.01" value="0.5">
+    </label>
+  </section>
+
+  <section>
+    <h3>AI model</h3>
+    <label>Model
+      <select id="modelSel"><option value="">— none loaded —</option></select>
+    </label>
+    <div class="btns">
+      <button id="modelBrowse" class="ghost sm">Browse…</button>
+      <button id="modelFolder" class="ghost sm">Models folder</button>
+    </div>
+    <label>Apply AI
+      <select id="aiApplySel">
+        <option value="paused">When paused (full quality, frame-accurate)</option>
+        <option value="live">Live while playing (latest finished frame)</option>
+      </select>
+    </label>
+    <label>Tile size
+      <select id="tileSel">
+        <option value="128">128 px (low VRAM)</option>
+        <option value="256" selected>256 px</option>
+        <option value="384">384 px</option>
+        <option value="512">512 px (fastest, more VRAM)</option>
+      </select>
+    </label>
+    <label>Backend
+      <select id="backendSel">
+        <option value="auto">Auto (WebGPU → CPU)</option>
+        <option value="wasm">CPU only (WASM)</option>
+      </select>
+    </label>
+    <p class="status" id="aiStatus">No model loaded. Real-ESRGAN / Compact / SPAN models exported to ONNX work.</p>
+  </section>
+
+  <section>
+    <h3>View</h3>
+    <label>Field of view <output id="fovOut">90°</output>
+      <input type="range" id="fovRange" min="30" max="120" step="1" value="90">
+    </label>
+    <div class="btns">
+      <button id="recenterBtn" class="ghost sm">Recenter (R)</button>
+      <button id="statsBtn" class="ghost sm">Stats (I)</button>
+      <button id="helpBtn" class="ghost sm">Shortcuts (?)</button>
+    </div>
+  </section>
+</aside>
+
+<div id="help" hidden>
+  <div class="help-card">
+    <div class="panel-head"><h2>Keyboard shortcuts</h2><button id="helpClose" class="icon sm"><svg><use href="#i-close"/></svg></button></div>
+    <dl>
+      <dt><kbd>Space</kbd> / <kbd>K</kbd></dt><dd>Play / pause</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Seek 5 s (<kbd>J</kbd> <kbd>L</kbd> 10 s)</dd>
+      <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Step one frame (paused)</dd>
+      <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Volume</dd>
+      <dt><kbd>M</kbd></dt><dd>Mute</dd>
+      <dt><kbd>F</kbd> / double-click</dt><dd>Fullscreen</dd>
+      <dt><kbd>O</kbd></dt><dd>Open video</dd>
+      <dt><kbd>P</kbd></dt><dd>Cycle video format</dd>
+      <dt><kbd>U</kbd></dt><dd>Cycle upscaling Off → GPU → AI</dd>
+      <dt><kbd>C</kbd></dt><dd>A/B compare (drag the divider)</dd>
+      <dt><kbd>V</kbd></dt><dd>Enter / exit VR headset</dd>
+      <dt><kbd>R</kbd></dt><dd>Recenter view</dd>
+      <dt>Drag · wheel</dt><dd>Look around · zoom (360°/180°)</dd>
+      <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Playback speed</dd>
+      <dt><kbd>I</kbd> · <kbd>S</kbd></dt><dd>Stats · settings</dd>
+      <dt>In headset</dt><dd>Trigger = play/pause · grip = recenter</dd>
+    </dl>
+  </div>
+</div>
+
+<div id="drop" hidden><div>Drop to play</div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="fileInput" accept="video/*,.mkv,.mov,.m4v,.webm" hidden>
+<input type="file" id="modelInput" accept=".onnx" hidden>
+<script type="module" src="app.js"></script>
+</body>
+</html>

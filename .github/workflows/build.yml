@@ -1,0 +1,58 @@
+name: Build installers
+
+on:
+  push:
+    tags: ['v*']          # push a tag like v1.0.0 to build and publish a GitHub Release
+  workflow_dispatch:      # or run it by hand from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            cmd: npx electron-builder --win nsis portable --x64 --arm64 --publish never
+          - os: macos-latest
+            cmd: npx electron-builder --mac dmg zip --universal --publish never
+          - os: ubuntu-latest
+            cmd: npx electron-builder --linux AppImage deb tar.gz --x64 --arm64 --publish never
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # unsigned builds unless you add signing secrets
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm test
+      - run: ${{ matrix.cmd }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lumen-vr-player-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.tar.gz
+          if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

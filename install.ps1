@@ -92,7 +92,11 @@ Write-Host '  Tip      : right-click the running app in the taskbar and choose "
 
 if (-not $NoLaunch) {
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$AppName.lnk"
-    # Launching through the Start-menu shortcut gives Windows the app's ID and icon right away.
-    if (Test-Path $shortcut) { Start-Process -FilePath $shortcut }
-    elseif ($exe) { Start-Process -FilePath $exe }
+    $target = if (Test-Path $shortcut) { $shortcut } elseif ($exe) { $exe } else { $null }
+    # Start through Explorer so the app is fully detached from this PowerShell window:
+    # it keeps running when you close PowerShell and doesn't print messages here.
+    # (The Start-menu shortcut also gives Windows the app's ID and icon right away.)
+    if ($target) { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$target`"" }
 }
+Write-Host ''
+Write-Host 'Done. You can close this window.' -ForegroundColor Green

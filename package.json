@@ -121,7 +121,8 @@
       "category": "public.app-category.video",
       "icon": "build/icon.png",
       "hardenedRuntime": true,
-      "artifactName": "Lumen-VR-Player-${version}-${arch}.${ext}"
+      "artifactName": "Lumen-VR-Player-${version}-${arch}.${ext}",
+      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/node_modules/ffmpeg-static/**"
     },
     "linux": {
       "target": [

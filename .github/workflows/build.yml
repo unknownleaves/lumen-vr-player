@@ -161,9 +161,20 @@ jobs:
           V="$APP_VERSION"
           IFS=. read -r MA MI PA <<< "${V%%-*}"
           CODE=$(( MA * 10000 + MI * 100 + PA ))
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          printf '%s' "$KEYSTORE_B64" | tr -d ' \r\n' | base64 -d > "$RUNNER_TEMP/release.p12" || { echo "::error::ANDROID_KEYSTORE_BASE64 is not valid base64"; exit 1; }
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.p12" -storetype PKCS12 -storepass "$LUMEN_KEYSTORE_PASSWORD" -alias lumen > /dev/null 2> "$RUNNER_TEMP/ks.err"; then
+            echo "::error::Signing key check failed: $(head -c 300 "$RUNNER_TEMP/ks.err" | tr '\n' ' ')"; exit 1
+          fi
           export LUMEN_KEYSTORE="$RUNNER_TEMP/release.p12"
-          gradle -p android assembleRelease -PappVersionName="$V" -PappVersionCode="$CODE" --no-daemon --stacktrace
+          set +e
+          gradle -p android assembleRelease -PappVersionName="$V" -PappVersionCode="$CODE" --no-daemon --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" != "0" ]; then
+            # Surface the real error as annotations (readable without signing in).
+            grep -E "error:|\berror\b|What went wrong|> |Could not|FAILURE|Exception|AAPT|e: " "$RUNNER_TEMP/gradle.log" | grep -v "^\s*at " | head -40 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            exit 1
+          fi
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk "dist/Lumen-VR-Player-$V.apk"
           rm -f "$RUNNER_TEMP/release.p12"

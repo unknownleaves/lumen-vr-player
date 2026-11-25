@@ -26,7 +26,23 @@ Ready-made installers are on the **[Releases page](https://github.com/unknownlea
 | Debian / Ubuntu | `.deb`: `sudo apt install ./lumen-vr-player_*.deb` |
 | Other Linux | `.AppImage`: `chmod +x` it, then run it |
 
-To make a new release, push a version tag: `git tag v1.0.0 && git push --tags`. GitHub Actions builds every installer and attaches them to the release.
+### Updates
+
+The app checks GitHub Releases at startup and every 6 hours. You can turn this off in **Settings → Updates**, or check by hand from **File → Check for Updates…**.
+
+| Install type | What happens |
+|---|---|
+| Windows installer, Linux AppImage, Linux `.deb` | Downloads in the background. Click **Restart & update**, or it installs the next time you quit. |
+| macOS, Windows portable, Linux `.tar.gz` | Shows a notice with a **Download** button for the new version. macOS can only update itself if the app is code-signed. |
+
+### Publishing a new version
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+GitHub Actions builds every installer, stamps it with the tag's version, and publishes a release with the update files (`latest*.yml`, `*.blockmap`). Installed copies see the new version within a few hours, or right away with **Check now**.
 
 ## Screenshots
 

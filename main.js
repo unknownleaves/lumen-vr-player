@@ -3,6 +3,7 @@ const { app, BrowserWindow, protocol, ipcMain, dialog, shell, Menu } = require('
 const path = require('path');
 const fs = require('fs');
 const { fileResponse, safeJoin } = require('./lib/serve');
+const { setupUpdater } = require('./lib/updater');
 
 const APP_ROOT = __dirname;
 const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv'];
@@ -29,6 +30,7 @@ protocol.registerSchemesAsPrivileged([
 const allowedFiles = new Set();
 let mainWindow = null;
 let pendingOpen = [];
+let updater = null;
 
 function modelDirs() {
   const user = path.join(app.getPath('userData'), 'models');
@@ -120,6 +122,7 @@ function buildMenu() {
       submenu: [
         { label: 'Open Video…', accelerator: 'CmdOrCtrl+O', click: () => openVideoDialog().then((r) => r && mainWindow.webContents.send('open-file', r)) },
         { label: 'Open AI Models Folder', click: () => shell.openPath(modelDirs()[0]) },
+        { label: 'Check for Updates…', click: () => { mainWindow.webContents.send('show-updates'); if (updater) updater.check(); } },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
@@ -181,6 +184,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     handleProtocol();
+    updater = setupUpdater(() => mainWindow);
     buildMenu();
     createWindow();
     const p = process.argv.slice(app.isPackaged ? 1 : 2).find(isVideoPath);

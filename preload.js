@@ -14,4 +14,13 @@ contextBridge.exposeInMainWorld('lumen', {
   },
   onOpenFile: (cb) => ipcRenderer.on('open-file', (_e, payload) => cb(payload)),
   onShowHelp: (cb) => ipcRenderer.on('show-help', () => cb()),
+  updates: {
+    get: () => ipcRenderer.invoke('update-get'),
+    check: () => ipcRenderer.invoke('update-check'),
+    install: () => ipcRenderer.invoke('update-install'),
+    openPage: () => ipcRenderer.invoke('update-open-page'),
+    setAuto: (on) => ipcRenderer.invoke('update-set-auto', !!on),
+    onStatus: (cb) => ipcRenderer.on('update-status', (_e, s) => cb(s)),
+    onShow: (cb) => ipcRenderer.on('show-updates', () => cb()),
+  },
 });

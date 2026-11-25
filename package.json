@@ -2,15 +2,18 @@
   "name": "lumen-vr-player",
   "productName": "Lumen VR Player",
   "version": "1.0.0",
-  "description": "Cross-platform 2D/3D/180°/360° VR video player with real-time GPU upscaling and AI super-resolution.",
+  "description": "Cross-platform 2D/3D/180\u00b0/360\u00b0 VR video player with real-time GPU upscaling and AI super-resolution.",
   "main": "main.js",
   "author": "Lumen VR Player contributors",
   "license": "MIT",
   "homepage": "https://github.com/unknownleaves/lumen-vr-player",
-  "repository": { "type": "git", "url": "https://github.com/unknownleaves/lumen-vr-player.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unknownleaves/lumen-vr-player.git"
+  },
   "scripts": {
     "start": "electron .",
-    "test": "node test/unit.test.mjs",
+    "test": "node test/unit.test.mjs && node test/updater.test.mjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis portable --x64 --arm64",
     "dist:mac": "electron-builder --mac dmg zip --universal",
@@ -18,7 +21,8 @@
     "dist:deb": "electron-builder --linux deb --x64 --arm64"
   },
   "dependencies": {
-    "onnxruntime-web": "^1.22.0"
+    "onnxruntime-web": "^1.22.0",
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "electron": "^37.2.0",
@@ -29,50 +33,116 @@
     "productName": "Lumen VR Player",
     "executableName": "lumen-vr-player",
     "files": [
-      "main.js",
-      "preload.js",
-      "lib/**",
-      "src/**",
-      "build/icon.png",
-      "node_modules/onnxruntime-web/dist/ort.webgpu.min.mjs",
-      "node_modules/onnxruntime-web/dist/*.wasm",
-      "node_modules/onnxruntime-web/dist/*.mjs",
-      "node_modules/onnxruntime-web/package.json"
+      "**/*",
+      "!test/**",
+      "!tools/**",
+      "!docs/**",
+      "!models/**",
+      "!dist/**",
+      "!.github/**",
+      "!**/*.map",
+      "!**/*.md",
+      "!node_modules/onnxruntime-web/lib/**",
+      "!node_modules/onnxruntime-web/types/**"
     ],
     "extraResources": [
-      { "from": "models", "to": "models", "filter": ["**/*.onnx", "README.txt"] }
+      {
+        "from": "models",
+        "to": "models",
+        "filter": [
+          "**/*.onnx",
+          "README.txt"
+        ]
+      }
     ],
     "fileAssociations": [
-      { "ext": ["mp4", "m4v", "mov", "webm", "mkv", "ogv"], "name": "Video", "role": "Viewer" }
+      {
+        "ext": [
+          "mp4",
+          "m4v",
+          "mov",
+          "webm",
+          "mkv",
+          "ogv"
+        ],
+        "name": "Video",
+        "role": "Viewer"
+      }
     ],
-    "directories": { "output": "dist", "buildResources": "build" },
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "shortcutName": "Lumen VR Player"
+      "shortcutName": "Lumen VR Player",
+      "artifactName": "Lumen-VR-Player-Setup-${version}.${ext}"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.video",
       "icon": "build/icon.png",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "artifactName": "Lumen-VR-Player-${version}-${arch}.${ext}"
     },
     "linux": {
-      "target": ["AppImage", "deb", "rpm", "tar.gz"],
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm",
+        "tar.gz"
+      ],
       "category": "AudioVideo",
       "icon": "build/icon.png",
       "maintainer": "Lumen VR Player <noreply@example.com>",
       "synopsis": "VR video player with AI upscaling",
-      "mimeTypes": ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska", "video/ogg"]
+      "mimeTypes": [
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+        "video/x-matroska",
+        "video/ogg"
+      ],
+      "artifactName": "lumen-vr-player-${version}-${arch}.${ext}"
     },
     "deb": {
-      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1", "libsecret-1-0", "libgbm1", "libasound2 | libasound2t64"],
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libgbm1",
+        "libasound2 | libasound2t64"
+      ],
       "priority": "optional"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "unknownleaves",
+        "repo": "lumen-vr-player",
+        "releaseType": "release"
+      }
+    ],
+    "portable": {
+      "artifactName": "Lumen-VR-Player-${version}-portable.${ext}"
     }
   }
 }

@@ -680,6 +680,58 @@ function toast(msg, ms = 1800) {
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+// ------------------------------------------------------------------------------------------------
+// Updates (desktop app only)
+const upd = host && host.updates;
+let updPackaged = true, updDismissed = '';
+function renderUpdate(s) {
+  if (!s) return;
+  if (s.packaged === false) updPackaged = false;
+  $('verText').textContent = (s.current || '—') + (updPackaged ? '' : ' (development build)');
+  const st = $('updStatus'), act = $('updActionBtn'), banner = $('updBanner');
+  const manual = s.mode === 'manual';
+  let text = 'Updates come from GitHub Releases.', cls = '', action = '';
+  switch (s.state) {
+    case 'checking': text = 'Checking for updates…'; break;
+    case 'up-to-date': text = "You're on the latest version."; cls = 'ok'; break;
+    case 'downloading': text = `Downloading version ${s.version}… ${s.percent || 0}%`; break;
+    case 'ready': text = `Version ${s.version} is downloaded. Restart to install it (or it installs when you quit).`; cls = 'ok'; action = 'Restart & update'; break;
+    case 'available': text = `Version ${s.version} is available.` + (manual ? ' This copy can’t update itself, so download the new version.' : ''); cls = 'ok'; action = 'Download'; break;
+    case 'error': text = `Couldn’t check for updates: ${s.message}`; cls = 'err'; break;
+    default: if (!updPackaged) text = 'Updates are checked in installed builds, not when running from source.';
+  }
+  if (s.notes && (s.state === 'ready' || s.state === 'available')) text += '\n\n' + s.notes.split('\n').slice(0, 6).join('\n');
+  st.textContent = text;
+  st.className = 'status' + (cls ? ' ' + cls : '');
+  act.hidden = !action;
+  act.textContent = action;
+  $('updProgress').hidden = s.state !== 'downloading';
+  $('updBar').style.width = (s.percent || 0) + '%';
+  $('updCheckBtn').disabled = s.state === 'checking' || s.state === 'downloading';
+  const showBanner = (s.state === 'ready' || s.state === 'available') && updDismissed !== s.version;
+  banner.hidden = !showBanner;
+  if (showBanner) {
+    $('updBannerText').textContent = s.state === 'ready' ? `Lumen ${s.version} is ready to install` : `Lumen ${s.version} is available`;
+    $('updBannerBtn').textContent = action;
+    $('updBannerBtn').dataset.version = s.version;
+  }
+}
+if (!upd) {
+  $('updSection').hidden = true;
+} else {
+  const autoOn = load('lumen.autoUpdate', true);
+  $('autoUpdChk').checked = autoOn;
+  upd.setAuto(autoOn);
+  $('autoUpdChk').onchange = (e) => { save('lumen.autoUpdate', e.target.checked); upd.setAuto(e.target.checked); };
+  $('updCheckBtn').onclick = () => upd.check();
+  $('updActionBtn').onclick = () => upd.install();
+  $('updBannerBtn').onclick = () => upd.install();
+  $('updBannerClose').onclick = () => { updDismissed = $('updBannerBtn').dataset.version || ''; $('updBanner').hidden = true; };
+  upd.onShow(() => { $('panel').hidden = false; $('updSection').scrollIntoView({ block: 'nearest' }); });
+  upd.onStatus(renderUpdate);
+  upd.get().then(renderUpdate);
+}
+
 syncUI();
 if (S.upscale === 'ai') { S.upscale = 'gpu'; syncUI(); }   // AI is re-enabled explicitly each session (model load can be slow)
 

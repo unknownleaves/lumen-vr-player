@@ -175,6 +175,18 @@
     <p class="status" id="aiStatus">No model loaded. Real-ESRGAN / Compact / SPAN models exported to ONNX work.</p>
   </section>
 
+  <section id="updSection">
+    <h3>Updates</h3>
+    <p class="ver">Version <b id="verText">—</b></p>
+    <label class="check"><input type="checkbox" id="autoUpdChk" checked> Check for updates automatically</label>
+    <div class="btns">
+      <button id="updCheckBtn" class="ghost sm">Check now</button>
+      <button id="updActionBtn" class="ghost sm" hidden>Restart &amp; update</button>
+    </div>
+    <div class="progress" id="updProgress" hidden><div id="updBar"></div></div>
+    <p class="status" id="updStatus">Updates come from GitHub Releases.</p>
+  </section>
+
   <section>
     <h3>View</h3>
     <label>Field of view <output id="fovOut">90°</output>
@@ -210,6 +222,12 @@
       <dt>In headset</dt><dd>Trigger = play/pause · grip = recenter</dd>
     </dl>
   </div>
+</div>
+
+<div id="updBanner" hidden>
+  <span id="updBannerText"></span>
+  <button id="updBannerBtn" class="primary sm">Restart &amp; update</button>
+  <button id="updBannerClose" class="icon sm" title="Later"><svg><use href="#i-close"/></svg></button>
 </div>
 
 <div id="drop" hidden><div>Drop to play</div></div>

@@ -210,7 +210,17 @@ function playPrev() {
   const i = queue.prevIndex();
   if (i >= 0 && i !== queue.index) playIndex(i); else seekTo(0);
 }
-video.addEventListener('ended', () => { if (!playNext(true)) { video.pause(); wake(); } });
+video.addEventListener('ended', () => {
+  if (playNext(true)) return;
+  video.pause();
+  savePosition();
+  if (document.fullscreenElement && android) document.exitFullscreen().catch(() => {});
+  $('endName').textContent = cur.item ? cur.item.name : '';
+  $('endCard').hidden = false;
+  wake();
+});
+function hideEndCard() { $('endCard').hidden = true; }
+for (const ev of ['play', 'seeking', 'emptied']) video.addEventListener(ev, hideEndCard);
 
 /** Add items; play the first one now unless told otherwise. */
 function addAndPlay(items, { play = true, next = false } = {}) {
@@ -951,9 +961,15 @@ canvas.addEventListener('pointermove', (e) => {
   }
   drag.x = e.clientX; drag.y = e.clientY;
 });
-canvas.addEventListener('pointerup', () => {
+canvas.addEventListener('pointerup', (e) => {
   if (drag && !drag.moved && !drag.split && !pinched) {
-    pendingClick = setTimeout(togglePlay, 220);   // cancelled by dblclick
+    if (e.pointerType === 'touch') {
+      // Phones/tablets: a tap shows the controls (Home, play, seek…); tapping again hides them.
+      if (document.body.classList.contains('idle') || video.paused) wake();
+      else { clearTimeout(idleTimer); document.body.classList.add('idle'); }
+    } else {
+      pendingClick = setTimeout(togglePlay, 220);   // mouse: click = play/pause (cancelled by dblclick)
+    }
   }
   drag = null;
   canvas.classList.remove('dragging');
@@ -983,6 +999,8 @@ function wake() {
   }, 2600);
 }
 window.addEventListener('pointermove', wake);
+window.addEventListener('pointerdown', (e) => { if (e.target !== canvas) wake(); });
+video.addEventListener('play', wake);   // start the auto-hide timer even without any input
 window.addEventListener('keydown', wake);
 video.addEventListener('pause', wake);
 
@@ -1121,7 +1139,7 @@ function goHome() {
   savePosition();
   video.pause();
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  for (const id of ['panel', 'queue', 'library', 'help']) $(id).hidden = true;
+  for (const id of ['panel', 'queue', 'library', 'help', 'endCard']) $(id).hidden = true;
   closePops();
   if (xr.active) xr.exit();
   document.body.classList.remove('loaded', 'idle');
@@ -1131,10 +1149,15 @@ function goHome() {
 function resumePlayer() {
   if (!cur.item) return;
   document.body.classList.add('loaded');
+  if (video.ended) seekTo(0);
   video.play().catch(() => {});
 }
 
 $('homeBtn').onclick = goHome;
+$('homeBtn2').onclick = goHome;
+$('endHome').onclick = () => { hideEndCard(); goHome(); };
+$('endReplay').onclick = () => { hideEndCard(); seekTo(0); video.play().catch(() => {}); };
+$('endOpen').onclick = () => { hideEndCard(); goHome(); openDialog(false); };
 $('resumeBtn').onclick = resumePlayer;
 $('recentClear').onclick = () => { save('lumen.recent', []); renderHome(); };
 
@@ -1434,6 +1457,12 @@ async function detectServer() {
       ? `For VR headsets use https://${location.hostname}:${info.https}`
       : `Lumen server ${info.version}`;
     if (insecure && $('vrBtn').disabled) $('vrBtn').title = `VR needs the secure address: https://${location.hostname}:${info.https}`;
+    if (android) {
+      const note = $('serverNote');
+      note.hidden = false;
+      note.innerHTML = `Using your server <b>${esc(location.hostname)}</b> · <button id="usePhone">Use this phone's videos instead</button>`;
+      $('usePhone').onclick = () => android.disconnectServer();
+    }
     refreshModelList();
   } catch { /* plain static hosting */ }
 }
@@ -1525,8 +1554,12 @@ if (!upd) {
 }
 
 window.__lumenBack = () => {
-  for (const id of ['help', 'serverDlg', 'library', 'panel', 'queue']) {
-    if (!$(id).hidden) { $(id).hidden = true; syncPlaylistButtons(); return true; }
+  for (const id of ['help', 'serverDlg', 'library', 'panel', 'queue', 'endCard']) {
+    if (!$(id).hidden) {
+      $(id).hidden = true; syncPlaylistButtons();
+      if (id === 'endCard') goHome();
+      return true;
+    }
   }
   if (document.fullscreenElement) { document.exitFullscreen(); return true; }
   if (zoom > 1) { resetZoom(false); return true; }

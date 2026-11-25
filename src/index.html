@@ -38,6 +38,18 @@
 <canvas id="stage"></canvas>
 <video id="video" playsinline preload="auto"></video>
 
+<div id="endCard" hidden>
+  <div class="end-inner">
+    <p class="end-title">Finished</p>
+    <p class="end-name" id="endName"></p>
+    <div class="end-btns">
+      <button id="endReplay" class="ghost"><svg><use href="#i-repeat"/></svg>Replay</button>
+      <button id="endHome" class="primary"><svg><use href="#i-home"/></svg>Back to home</button>
+      <button id="endOpen" class="ghost"><svg><use href="#i-open"/></svg>Choose another video</button>
+    </div>
+  </div>
+</div>
+
 <div id="compareLabels" hidden><span>Original</span><span>Enhanced</span></div>
 
 <section id="empty">
@@ -56,6 +68,7 @@
     <button id="serverBtn" class="ghost" hidden><svg><use href="#i-sphere"/></svg>Connect to server</button>
     <button id="emptyModelBtn" class="ghost"><svg><use href="#i-spark"/></svg>Load AI model</button>
   </div>
+  <p class="server-note" id="serverNote" hidden></p>
   <p class="hint">or drop a file anywhere · <kbd>O</kbd> open · <kbd>?</kbd> shortcuts</p>
   <section id="recent" hidden>
     <div class="recent-head"><h2>Recently played</h2><button id="recentClear" class="link">Clear</button></div>
@@ -87,6 +100,7 @@
     <div class="tip" id="seekTip">0:00</div>
   </div>
   <div class="row">
+    <button id="homeBtn2" class="icon sm" title="Home: choose another video (Backspace)"><svg><use href="#i-home"/></svg></button>
     <button id="prevBtn" class="icon sm" title="Previous (B)"><svg><use href="#i-prev"/></svg></button>
     <button id="playBtn" class="icon" title="Play / Pause (Space)"><svg><use href="#i-play"/></svg></button>
     <button id="nextBtn" class="icon sm" title="Next (N)"><svg><use href="#i-next"/></svg></button>

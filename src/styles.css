@@ -274,3 +274,16 @@ button.link:hover { color: var(--ink); }
 #recentList .meta { color: var(--faint); font: 11px ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
 #recentList svg { width: 16px; height: 16px; color: var(--dim); }
 @media (max-height: 700px) { #empty { justify-content: flex-start; padding-top: 40px; } .chips { display: none; } }
+
+/* ---------- end of video ---------- */
+#endCard { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5,6,9,.72); backdrop-filter: blur(6px); z-index: 8; }
+#endCard[hidden] { display: none; }
+.end-inner { text-align: center; padding: 20px; max-width: 92vw; }
+.end-title { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; }
+.end-name { margin: 6px 0 18px; font-size: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.end-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.end-btns svg { width: 18px; height: 18px; }
+body:not(.loaded) #endCard { display: none; }
+.server-note { margin: 0; font-size: 13px; color: var(--dim); }
+.server-note button { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0 2px; text-decoration: underline; }
+@media (max-width: 640px) { .end-btns { flex-direction: column; width: min(300px, 86vw); margin: 0 auto; } .end-btns button { justify-content: center; } }

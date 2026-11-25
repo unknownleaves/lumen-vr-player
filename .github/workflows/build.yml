@@ -172,7 +172,13 @@ jobs:
           set -e
           if [ "$rc" != "0" ]; then
             # Surface the real error as annotations (readable without signing in).
-            grep -E "error:|\berror\b|What went wrong|> |Could not|FAILURE|Exception|AAPT|e: " "$RUNNER_TEMP/gradle.log" | grep -v "^\s*at " | head -40 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            L="$RUNNER_TEMP/gradle.log"
+            # GitHub keeps at most 10 annotations per step, so send the essentials as single multi-line messages.
+            WHAT=$(sed -n '/What went wrong/,/\* Try/p' "$L" | grep -v '^\s*$' | head -25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            ERRS=$(grep -E "error:|ERROR:|AAPT|e: file" "$L" | grep -v '^\s*at ' | head -15 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            [ -n "$ERRS" ] && echo "::error title=Compiler errors::${ERRS:0:3500}"
+            [ -n "$WHAT" ] && echo "::error title=Gradle failure::${WHAT:0:3500}"
+            tail -30 "$L" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | { read -r T; echo "::error title=Log tail::${T:0:3500}"; }
             exit 1
           fi
           mkdir -p dist

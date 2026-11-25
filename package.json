@@ -1,7 +1,7 @@
 {
   "name": "lumen-vr-player",
   "productName": "Lumen VR Player",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Cross-platform 2D/3D/180\u00b0/360\u00b0 VR video player with real-time GPU upscaling and AI super-resolution.",
   "main": "main.js",
   "author": "Lumen VR Player contributors",
@@ -50,7 +50,8 @@
       "!zimaos/**",
       "!Dockerfile",
       "!.dockerignore",
-      "!install.ps1"
+      "!install.ps1",
+      "!android/**"
     ],
     "extraResources": [
       {

@@ -58,8 +58,12 @@ await test('filename tags', () => {
   assert.equal(detectFormat('vr180_clip.mp4', 4096, 2048).stereo, 'sbs');
   assert.equal(detectFormat('trip_fisheye_sbs.mp4', 7680, 3840).projection, 'fisheye180');
   assert.equal(detectFormat('holiday.mp4', 1920, 1080).projection, 'flat');
-  assert.equal(detectFormat('pano.mp4', 3840, 1920).projection, 'equi360');
-  assert.deepEqual(detectFormat('dive.mp4', 4096, 4096), { projection: 'equi360', stereo: 'tb', swap: false });
+  // Aspect ratio alone must not turn ordinary films into VR
+  assert.deepEqual(detectFormat('Some.Film.2021.2160p.mp4', 3840, 1920), { projection: 'flat', stereo: 'mono', swap: false });
+  assert.deepEqual(detectFormat('square.mp4', 2160, 2160), { projection: 'flat', stereo: 'mono', swap: false });
+  // …but embedded VR metadata is used
+  assert.deepEqual(detectFormat('GOPR0042.mp4', 5760, 2880, { spherical: 'equi360', stereo: null }), { projection: 'equi360', stereo: 'mono', swap: false });
+  assert.deepEqual(detectFormat('dive.mp4', 4096, 4096, { spherical: 'equi360', stereo: 'tb' }), { projection: 'equi360', stereo: 'tb', swap: false });
 });
 await test('eyeAspect handles half/full SBS & TB', () => {
   assert.ok(Math.abs(eyeAspect(1920, 1080, 'sbs') - 16 / 9) < 1e-6);
@@ -171,6 +175,43 @@ await test('resampleRGBA keeps constant colour', () => {
   const r = resampleRGBA(src, 8, 8, 5, 3);
   assert.equal(r.length, 5 * 3 * 4);
   assert.ok(r.every((v) => v === 200));
+});
+
+console.log('media.js');
+const require2 = createRequire(import.meta.url);
+const media = require2('../lib/media.js');
+await test('parseProbe reads codecs, duration and VR metadata', () => {
+  const txt = `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'a.mp4':
+  Duration: 00:01:02.50, start: 0.000000, bitrate: 4000 kb/s
+  Stream #0:0[0x1](und): Video: hevc (Main) (hvc1 / 0x31637668), yuv420p(tv), 5760x2880 [SAR 1:1 DAR 2:1], 4000 kb/s, 30 fps
+    Side data:
+      stereo3d: top and bottom
+      spherical: equirectangular (0.000000/0.000000/0.000000)
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 128 kb/s`;
+  const p = media.parseProbe(txt);
+  assert.equal(p.duration, 62.5);
+  assert.deepEqual(p.video, { codec: 'hevc', width: 5760, height: 2880 });
+  assert.equal(p.audio.codec, 'aac');
+  assert.equal(p.spherical, 'equi360');
+  assert.equal(p.stereo, 'tb');
+});
+await test('plan picks direct / remux / transcode', () => {
+  const mk = (container, v, a) => ({ container, video: { codec: v }, audio: a ? { codec: a } : null });
+  assert.equal(media.plan(mk('mov,mp4,m4a', 'h264', 'aac'), 'a.mp4').mode, 'direct');
+  assert.equal(media.plan(mk('matroska,webm', 'vp9', 'opus'), 'a.webm').mode, 'direct');
+  assert.equal(media.plan(mk('matroska,webm', 'h264', 'ac3'), 'a.mkv').mode, 'remux');
+  assert.equal(media.plan(mk('matroska,webm', 'h264', 'ac3'), 'a.mkv').copyAudio, false);
+  assert.equal(media.plan(mk('mov,mp4,m4a', 'hevc', 'aac'), 'a.mp4', { hevc: false }).mode, 'transcode');
+  assert.equal(media.plan(mk('mov,mp4,m4a', 'hevc', 'aac'), 'a.mp4', { hevc: true }).mode, 'direct');
+  assert.equal(media.plan(mk('avi', 'mpeg4', 'mp3'), 'a.avi').mode, 'transcode');
+  assert.equal(media.plan(mk('asf', 'wmv2', 'wmav2'), 'a.wmv').mode, 'transcode');
+  assert.equal(media.plan(null, 'a.mkv').mode, 'direct');
+});
+await test('ffmpegArgs seeks and emits fragmented mp4', () => {
+  const a = media.ffmpegArgs('/x.mkv', { mode: 'remux', copyAudio: false, start: 12.5, codec: 'hevc' });
+  assert.deepEqual(a.slice(a.indexOf('-ss'), a.indexOf('-ss') + 2), ['-ss', '12.5']);
+  assert.ok(a.includes('copy') && a.includes('hvc1') && a.includes('aac'));
+  assert.equal(a[a.length - 1], 'pipe:1');
 });
 
 console.log(`\n${passed} tests passed${process.exitCode ? ' (with failures)' : ''}`);

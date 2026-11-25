@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { fileResponse, safeJoin } = require('./lib/serve');
 const { setupUpdater } = require('./lib/updater');
+const media = require('./lib/media');
+const { Readable } = require('stream');
 
 const APP_ROOT = __dirname;
 const APP_ID = 'io.lumen.vrplayer';   // must match "appId" in package.json
@@ -13,7 +15,7 @@ const APP_ID = 'io.lumen.vrplayer';   // must match "appId" in package.json
 // are all recognised as one app and always show the Lumen icon.
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 const WINDOW_ICON = path.join(APP_ROOT, 'src', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
-const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv'];
+const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', '3gp', 'divx', 'asf', 'f4v', 'rm', 'rmvb'];
 // Cross-origin isolation lets ONNX Runtime use multi-threaded WASM (SharedArrayBuffer).
 const ISOLATION = {
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -56,7 +58,8 @@ function isVideoPath(p) {
 }
 
 function sendOpen(p) {
-  const payload = { url: fileUrl(p), name: path.basename(p), path: p };
+  allowedFiles.add(path.resolve(p));
+  const payload = { name: path.basename(p), path: path.resolve(p) };
   if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isLoading()) {
     mainWindow.webContents.send('open-file', payload);
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -80,6 +83,21 @@ function handleProtocol() {
       const inModels = modelDirs().some((d) => !path.relative(d, p).startsWith('..') && !path.isAbsolute(path.relative(d, p)));
       if (!allowedFiles.has(p) && !inModels) return new Response('Forbidden', { status: 403 });
       return fileResponse(p, range, ISOLATION);
+    }
+    if (url.host === 'stream') {
+      // On-the-fly remux / transcode through FFmpeg for formats Chromium can't play natively.
+      const p = path.resolve(decodeURIComponent(url.pathname.slice(1)));
+      if (!allowedFiles.has(p)) return new Response('Forbidden', { status: 403 });
+      const q = url.searchParams;
+      let child;
+      try {
+        child = media.stream(p, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '' });
+      } catch (e) {
+        return new Response(e.message, { status: 500 });
+      }
+      const out = child.stdout;
+      out.on('close', () => child.kill('SIGKILL'));
+      return new Response(Readable.toWeb(out), { status: 200, headers: { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store', ...ISOLATION } });
     }
     return new Response('Not found', { status: 404 });
   });
@@ -127,7 +145,7 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'Open Video…', accelerator: 'CmdOrCtrl+O', click: () => openVideoDialog().then((r) => r && mainWindow.webContents.send('open-file', r)) },
+        { label: 'Open Videos…', accelerator: 'CmdOrCtrl+O', click: () => openVideoDialog().then((list) => list.forEach((r, i) => mainWindow.webContents.send('open-file', { ...r, enqueue: i > 0 }))) },
         { label: 'Open AI Models Folder', click: () => shell.openPath(modelDirs()[0]) },
         { label: 'Check for Updates…', click: () => { mainWindow.webContents.send('show-updates'); if (updater) updater.check(); } },
         { type: 'separator' },
@@ -142,18 +160,34 @@ function buildMenu() {
 
 async function openVideoDialog() {
   const res = await dialog.showOpenDialog(mainWindow, {
-    title: 'Open video',
-    properties: ['openFile'],
+    title: 'Open videos',
+    properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Video', extensions: VIDEO_EXT }, { name: 'All files', extensions: ['*'] }],
   });
-  if (res.canceled || !res.filePaths[0]) return null;
-  const p = res.filePaths[0];
-  return { url: fileUrl(p), name: path.basename(p), path: p };
+  if (res.canceled) return [];
+  return res.filePaths.map((p) => { allowedFiles.add(path.resolve(p)); return { name: path.basename(p), path: path.resolve(p) }; });
+}
+
+/** Probe a file and return the URL the player should load (direct file or FFmpeg stream). */
+async function prepare(p, caps) {
+  if (typeof p !== 'string' || !fs.existsSync(p)) return { error: 'File not found: ' + p };
+  const full = path.resolve(p);
+  allowedFiles.add(full);
+  const d = await media.describe(full, caps || {});
+  const url = d.mode === 'direct'
+    ? fileUrl(full)
+    : `app://stream/${encodeURIComponent(full)}?mode=${d.mode}&copyAudio=${d.copyAudio ? 1 : 0}&codec=${encodeURIComponent(d.videoCodec)}`;
+  return { ...d, url, name: path.basename(full), path: full, streamed: d.mode !== 'direct' };
 }
 
 // ---- IPC -----------------------------------------------------------------------
 ipcMain.handle('open-video-dialog', () => openVideoDialog());
-ipcMain.handle('register-path', (_e, p) => (typeof p === 'string' && fs.existsSync(p) ? { url: fileUrl(p), name: path.basename(p), path: p } : null));
+ipcMain.handle('register-path', (_e, p) => {
+  if (typeof p !== 'string' || !fs.existsSync(p)) return null;
+  allowedFiles.add(path.resolve(p));
+  return { name: path.basename(p), path: path.resolve(p) };
+});
+ipcMain.handle('prepare', (_e, p, caps) => prepare(p, caps));
 ipcMain.handle('list-models', () => {
   const out = [];
   for (const dir of modelDirs()) {

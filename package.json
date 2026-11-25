@@ -1,7 +1,7 @@
 {
   "name": "lumen-vr-player",
   "productName": "Lumen VR Player",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Cross-platform 2D/3D/180\u00b0/360\u00b0 VR video player with real-time GPU upscaling and AI super-resolution.",
   "main": "main.js",
   "author": "Lumen VR Player contributors",
@@ -13,7 +13,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "test": "node test/unit.test.mjs && node test/updater.test.mjs",
+    "test": "node test/unit.test.mjs && node test/updater.test.mjs && node test/queue.test.mjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis portable --x64 --arm64",
     "dist:mac": "electron-builder --mac dmg zip --universal",
@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "onnxruntime-web": "^1.22.0",
-    "electron-updater": "^6.6.2"
+    "electron-updater": "^6.6.2",
+    "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
     "electron": "^37.2.0",
@@ -69,7 +70,20 @@
           "mov",
           "webm",
           "mkv",
-          "ogv"
+          "ogv",
+          "avi",
+          "wmv",
+          "flv",
+          "ts",
+          "m2ts",
+          "mts",
+          "mpg",
+          "mpeg",
+          "vob",
+          "3gp",
+          "divx",
+          "asf",
+          "f4v"
         ],
         "name": "Video",
         "role": "Viewer"
@@ -125,7 +139,13 @@
         "video/webm",
         "video/quicktime",
         "video/x-matroska",
-        "video/ogg"
+        "video/ogg",
+        "video/x-msvideo",
+        "video/x-ms-wmv",
+        "video/x-flv",
+        "video/mp2t",
+        "video/mpeg",
+        "video/3gpp"
       ],
       "artifactName": "lumen-vr-player-${version}-${arch}.${ext}",
       "desktop": {
@@ -148,7 +168,8 @@
         "libuuid1",
         "libsecret-1-0",
         "libgbm1",
-        "libasound2 | libasound2t64"
+        "libasound2 | libasound2t64",
+        "ffmpeg"
       ],
       "priority": "optional"
     },
@@ -162,6 +183,9 @@
     ],
     "portable": {
       "artifactName": "Lumen-VR-Player-${version}-portable.${ext}"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ]
   }
 }

@@ -8,7 +8,9 @@ A desktop video player for **Windows, macOS, Linux and Debian/Ubuntu** that play
 
 | | |
 |---|---|
-| **Formats** | 2D · 3D side-by-side / top-bottom (full or half) · 360° mono/stereo · VR180 (equirect) · 180° fisheye |
+| **Files** | Any common video: MP4, MKV, AVI, WMV, MOV, WebM, MPEG-TS/M2TS, MPG/VOB, FLV, 3GP… with any codec (H.264, HEVC, AV1, VP9, MPEG-2, DivX/Xvid, WMV, VC-1…) and audio (AAC, AC3, E-AC3, DTS, FLAC…). Files the browser engine can't play are converted on the fly by FFmpeg. |
+| **Playlists** | Queue with next / previous, **repeat one**, **repeat all**, **shuffle**, drag-to-reorder · saved, named playlists (on the server they're shared between all your devices) · play / shuffle / queue a whole folder |
+| **VR formats** | 2D · 3D side-by-side / top-bottom (full or half) · 360° mono/stereo · VR180 (equirect) · 180° fisheye. Detected from filename tags or the video's own VR metadata |
 | **VR** | Look-around on a monitor (drag / wheel) · red-cyan anaglyph · real headsets via **WebXR / OpenXR** (SteamVR, Meta Quest Link & Air Link, Windows Mixed Reality, Pico Connect, Varjo…) · 3D movies on a virtual cinema screen |
 | **Upscaling** | **GPU**: edge-adaptive Lanczos upscale + contrast-adaptive sharpening (FSR 1.0 algorithm), real time even for 8K VR · **AI**: any ONNX super-resolution model (Real-ESRGAN, Compact, SPAN…) on WebGPU, with CPU fallback |
 | **Extras** | A/B compare slider · format auto-detection from filenames (`_360_TB`, `_180_LR`, `HSBS`, `fisheye`…) and remembered per file · drag-and-drop · "Open with…" file associations · keyboard shortcuts · stats overlay |
@@ -113,6 +115,9 @@ sudo apt install ./dist/lumen-vr-player_1.0.0_amd64.deb
 | `←` `→` / `J` `L` | Seek 5 s / 10 s |
 | `,` `.` | Step one frame back/forward |
 | `↑` `↓` · `M` | Volume · mute |
+| `N` · `B` | Next · previous video |
+| `H` · `T` | Shuffle · repeat (off → all → one) |
+| `Q` | Queue & playlists |
 | `F` / double-click | Fullscreen |
 | `P` | Cycle video format (2D → 3D → 360° → 180°…) |
 | `U` | Cycle upscaling: Off → GPU → AI |
@@ -160,13 +165,15 @@ Ready-made ONNX files from OpenModelDB / Hugging Face also work if they match th
 * **macOS:** there is no PC-VR runtime, so you get desktop look-around and anaglyph viewing.
 * 2D and 3D movies in a headset play on a large virtual screen. 3D movies show true stereo.
 
-## Codecs
+## Formats & conversion
 
-Playback uses Chromium's decoders with hardware acceleration where available: **H.264, H.265/HEVC** (hardware decoder required; standard on Windows 10/11 and Macs), **VP8/VP9, AV1**, AAC/Opus/MP3 audio, in MP4/MOV/WebM, and most MKVs. Files using other codecs (e.g. ProRes, DTS audio) need converting first. For example:
+Each file is checked with FFmpeg when it opens:
 
-```bash
-ffmpeg -i input.mkv -c:v copy -c:a aac output.mp4
-```
+* **Plays directly:** MP4/MOV/WebM with H.264, VP9, AV1 (and HEVC where the device has a hardware decoder). Seeking is instant and nothing extra runs.
+* **Re-wrapped on the fly:** e.g. MKV/AVI/TS with H.264 or HEVC video. The picture is copied untouched and only incompatible audio (AC3, DTS…) is converted. This is cheap.
+* **Converted on the fly:** old or unusual video codecs (MPEG-2, DivX/Xvid, WMV/VC-1…) are converted to H.264. This uses more CPU, especially at 4K. Seeking restarts the conversion from the new point, which takes a second.
+
+The desktop app includes FFmpeg (the Debian package uses the system `ffmpeg`), and the Docker image includes it too. FFmpeg is a separate program licensed under the GPL (https://ffmpeg.org).
 
 ## Project layout
 

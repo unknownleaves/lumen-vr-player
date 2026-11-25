@@ -2,7 +2,10 @@
 // projection: 'flat' | 'equi360' | 'equi180' | 'fisheye180'
 // stereo:     'mono' | 'sbs' | 'tb'
 
-export function detectFormat(name = '', w = 0, h = 0) {
+// meta (optional) comes from the file's own VR metadata via FFmpeg: { spherical, stereo }.
+// Without tags or metadata a video is treated as a normal flat video — aspect ratio alone is not
+// trusted, because many ordinary films are 2:1 or square.
+export function detectFormat(name = '', w = 0, h = 0, meta = null) {
   const tokens = name.toLowerCase().replace(/\.[a-z0-9]+$/, '').split(/[^a-z0-9]+/).filter(Boolean);
   const has = (...t) => t.some((x) => tokens.includes(x));
   const joined = tokens.join(' ');
@@ -20,11 +23,9 @@ export function detectFormat(name = '', w = 0, h = 0) {
   else if (has('mono', '2d')) stereo = 'mono';
 
   const ar = w && h ? w / h : 0;
-  if (!projection) {
-    if (Math.abs(ar - 2) < 0.03 && h >= 960) projection = 'equi360';      // 2:1 → mono 360 (most common)
-    else if (Math.abs(ar - 1) < 0.03 && h >= 1920) { projection = 'equi360'; stereo = stereo || 'tb'; }
-    else projection = 'flat';
-  }
+  if (meta && meta.spherical && !projection) projection = meta.spherical;
+  if (meta && meta.stereo && !stereo) stereo = meta.stereo;
+  if (!projection) projection = 'flat';
   if (!stereo) {
     if (projection === 'equi180' || projection === 'fisheye180') stereo = ar >= 1.9 ? 'sbs' : ar <= 1.1 && ar > 0 ? 'mono' : 'sbs';
     else stereo = 'mono';

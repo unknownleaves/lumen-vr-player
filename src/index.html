@@ -23,6 +23,14 @@
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5L10 13l-6.5-2L10 9zM19 2l.8 2.2L22 5l-2.2.8L19 8l-.8-2.2L16 5l2.2-.8z" fill="currentColor"/></symbol>
   <symbol id="i-split" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v18" stroke="currentColor" stroke-width="1.8"/><path d="M12 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-7z" fill="currentColor" opacity=".35"/></symbol>
   <symbol id="i-open" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 5h2.2v14H6zM19 5v14L9 12z" fill="currentColor"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M15.8 5H18v14h-2.2zM5 5v14l10-7z" fill="currentColor"/></symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 7h3.5c2 0 3.2 1 4.3 2.6l2.4 4.8C14.3 16 15.5 17 17.5 17H20M3 17h3.5c2 0 3.2-1 4.3-2.6M13.2 9.6C14.3 8 15.5 7 17.5 7H20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="m18 4 3 3-3 3M18 14l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M4 11V9.5A2.5 2.5 0 0 1 6.5 7H19M20 13v1.5a2.5 2.5 0 0 1-2.5 2.5H5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="m16 4 3 3-3 3M8 20l-3-3 3-3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-repeat1" viewBox="0 0 24 24"><path d="M4 11V9.5A2.5 2.5 0 0 1 6.5 7H19M20 13v1.5a2.5 2.5 0 0 1-2.5 2.5H5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="m16 4 3 3-3 3M8 20l-3-3 3-3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.2 10.6 12.6 10v4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M15 14v6l5-3z" fill="currentColor"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="7" r="1.4" fill="currentColor"/><circle cx="15" cy="7" r="1.4" fill="currentColor"/><circle cx="9" cy="12" r="1.4" fill="currentColor"/><circle cx="15" cy="12" r="1.4" fill="currentColor"/><circle cx="9" cy="17" r="1.4" fill="currentColor"/><circle cx="15" cy="17" r="1.4" fill="currentColor"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
@@ -36,9 +44,9 @@
     <img class="mark" src="assets/icon.png" alt="">
     <h1>Lumen<span>VR Player</span></h1>
   </div>
-  <p class="lede">Flat, 3D, 180° and 360° video — with real-time GPU upscaling and AI super-resolution.</p>
+  <p class="lede">Any video — MP4, MKV, AVI, WMV and more — plus 3D, 180° and 360° VR, with real-time GPU upscaling and AI super-resolution.</p>
   <div class="cta">
-    <button id="openBtn" class="primary"><svg><use href="#i-open"/></svg>Open video</button>
+    <button id="openBtn" class="primary"><svg><use href="#i-open"/></svg>Open videos</button>
     <button id="emptyModelBtn" class="ghost"><svg><use href="#i-spark"/></svg>Load AI model</button>
   </div>
   <p class="hint">or drop a file anywhere · <kbd>O</kbd> open · <kbd>?</kbd> shortcuts</p>
@@ -64,7 +72,9 @@
     <div class="tip" id="seekTip">0:00</div>
   </div>
   <div class="row">
+    <button id="prevBtn" class="icon sm" title="Previous (B)"><svg><use href="#i-prev"/></svg></button>
     <button id="playBtn" class="icon" title="Play / Pause (Space)"><svg><use href="#i-play"/></svg></button>
+    <button id="nextBtn" class="icon sm" title="Next (N)"><svg><use href="#i-next"/></svg></button>
     <button id="backBtn" class="icon sm" title="Back 10 s (J)"><svg><use href="#i-back"/></svg></button>
     <button id="fwdBtn" class="icon sm" title="Forward 10 s (L)"><svg><use href="#i-fwd"/></svg></button>
     <div class="vol">
@@ -73,6 +83,9 @@
     </div>
     <div class="time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
     <div class="spacer"></div>
+    <button id="shuffleBtn" class="icon sm" title="Shuffle (H)"><svg><use href="#i-shuffle"/></svg></button>
+    <button id="repeatBtn" class="icon sm" title="Repeat: off (T)"><svg><use href="#i-repeat"/></svg></button>
+    <button id="queueBtn" class="icon sm" title="Queue &amp; playlists (Q)"><svg><use href="#i-list"/></svg></button>
     <div class="pop-wrap">
       <button id="fmtBtn" class="pill" title="Video format (P)"><svg><use href="#i-sphere"/></svg><span id="fmtLabel">2D</span></button>
       <div class="pop" id="fmtPop" hidden></div>
@@ -209,6 +222,9 @@
       <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Step one frame (paused)</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Volume</dd>
       <dt><kbd>M</kbd></dt><dd>Mute</dd>
+      <dt><kbd>N</kbd> · <kbd>B</kbd></dt><dd>Next · previous video</dd>
+      <dt><kbd>H</kbd> · <kbd>T</kbd></dt><dd>Shuffle · repeat (off → all → one)</dd>
+      <dt><kbd>Q</kbd></dt><dd>Queue &amp; playlists</dd>
       <dt><kbd>F</kbd> / double-click</dt><dd>Fullscreen</dd>
       <dt><kbd>O</kbd></dt><dd>Open video</dd>
       <dt><kbd>P</kbd></dt><dd>Cycle video format</dd>
@@ -230,6 +246,29 @@
   <button id="updBannerClose" class="icon sm" title="Later"><svg><use href="#i-close"/></svg></button>
 </div>
 
+<aside id="queue" hidden>
+  <div class="q-head">
+    <div class="tabs">
+      <button id="qTabQueue" class="tab on">Up next</button>
+      <button id="qTabLists" class="tab">Playlists</button>
+    </div>
+    <button id="qClose" class="icon sm" title="Close"><svg><use href="#i-close"/></svg></button>
+  </div>
+  <div id="qQueueView">
+    <div class="q-sub"><span id="qName">Queue</span><span id="qCount"></span></div>
+    <ol id="qList"></ol>
+    <div class="q-foot">
+      <button id="qAdd" class="ghost sm"><svg><use href="#i-plus"/></svg>Add videos</button>
+      <button id="qSave" class="ghost sm">Save as playlist</button>
+      <button id="qClear" class="ghost sm">Clear</button>
+    </div>
+  </div>
+  <div id="qListsView" hidden>
+    <ul id="plList"></ul>
+    <p class="q-note" id="plNote"></p>
+  </div>
+</aside>
+
 <div id="library" hidden>
   <div class="lib-card">
     <div class="lib-head">
@@ -238,6 +277,11 @@
       <button id="libClose" class="icon sm" title="Close"><svg><use href="#i-close"/></svg></button>
     </div>
     <nav id="libCrumbs"></nav>
+    <div class="lib-actions" id="libActions" hidden>
+      <button id="libPlayAll" class="ghost sm"><svg><use href="#i-play"/></svg>Play folder</button>
+      <button id="libShuffleAll" class="ghost sm"><svg><use href="#i-shuffle"/></svg>Shuffle folder</button>
+      <button id="libAddAll" class="ghost sm"><svg><use href="#i-plus"/></svg>Add folder to queue</button>
+    </div>
     <div id="libList"></div>
     <div class="lib-foot">
       <span id="libHint"></span>
@@ -248,7 +292,7 @@
 
 <div id="drop" hidden><div>Drop to play</div></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<input type="file" id="fileInput" accept="video/*,.mkv,.mov,.m4v,.webm" hidden>
+<input type="file" id="fileInput" accept="video/*,.mkv,.mov,.m4v,.webm,.avi,.wmv,.flv,.ts,.m2ts,.mpg,.mpeg" multiple hidden>
 <input type="file" id="modelInput" accept=".onnx" hidden>
 <script type="module" src="app.js"></script>
 </body>

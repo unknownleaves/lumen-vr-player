@@ -1,6 +1,6 @@
 # Lumen VR Player — server edition (ZimaOS, CasaOS, Unraid, Synology, any Docker host)
 FROM node:20-alpine
-RUN apk add --no-cache openssl tini
+RUN apk add --no-cache openssl tini ffmpeg
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund \

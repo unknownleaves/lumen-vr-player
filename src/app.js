@@ -2,9 +2,11 @@ import { Renderer } from './gl.js';
 import { XRPlayer } from './xr.js';
 import { AIUpscaler } from './ai.js';
 import { detectFormat, eyeAspect } from './detect.js';
+import { Queue } from './queue.js';
 import { perspective, multiply, invert, rotX, rotY } from './math.js';
 
 const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const host = window.lumen || null;            // Electron bridge (absent when opened in a plain browser)
 let server = null;                            // set when served by the Docker / NAS server edition
 const video = $('video');
@@ -52,40 +54,148 @@ XRPlayer.supported().then((ok) => {
 
 // ------------------------------------------------------------------------------------------------
 // Opening media
-async function openPayload(p) {
-  if (!p) return;
-  fileName = p.name || 'video';
-  video.src = p.url;
-  video.load();
-  document.body.classList.add('loaded');
+// ------------------------------------------------------------------------------------------------
+// Playback source: direct file, or an FFmpeg stream (remux/transcode) with a "virtual" timeline.
+// For streams, video.currentTime counts from the point the stream was started (cur.offset).
+const cur = { item: null, info: null, url: '', offset: 0, streamed: false, duration: 0, retried: false, token: 0 };
+const curTime = () => cur.offset + (video.currentTime || 0);
+const totalTime = () => (cur.streamed ? cur.duration || 0 : (isFinite(video.duration) ? video.duration : cur.duration || 0));
+const withStart = (url, t) => url + (url.includes('?') ? '&' : '?') + 'start=' + t.toFixed(3);
+
+function caps() {
+  const ms = window.MediaSource;
+  const ok = (t) => { try { return !!(ms && ms.isTypeSupported(t)) || video.canPlayType(t) === 'probably'; } catch { return false; } };
+  return { hevc: ok('video/mp4; codecs="hvc1.1.6.L120.90"'), av1: ok('video/mp4; codecs="av01.0.08M.08"') };
+}
+
+/** Turn a queue item into something playable. */
+async function prepareItem(item, force) {
+  const c = caps();
+  if (force) c.force = force;
+  if (item.path && host && host.prepare) return host.prepare(item.path, c);
+  if (item.lib && server) {
+    const q = new URLSearchParams({ path: item.lib, hevc: c.hevc ? '1' : '0', av1: c.av1 ? '1' : '0' });
+    const r = await fetch('/api/probe?' + q);
+    if (!r.ok) return { error: (await r.json().catch(() => ({}))).error || 'Could not open ' + item.name };
+    const info = await r.json();
+    if (force === 'transcode') return { ...info, url: info.fallbackUrl, streamed: true, mode: 'transcode' };
+    return info;
+  }
+  if (item.file) {
+    if (!item.url) item.url = URL.createObjectURL(item.file);
+    return { url: item.url, streamed: false, mode: 'direct' };
+  }
+  return { url: item.url, streamed: false, mode: 'direct' };
+}
+
+async function playItem(item, { autoplay = true, force = null } = {}) {
+  if (!item) return;
+  const token = ++cur.token;
+  fileName = item.name || 'video';
   $('title').textContent = fileName;
+  document.body.classList.add('loaded');
+  const info = await prepareItem(item, force);
+  if (token !== cur.token) return;                    // another item was chosen meanwhile
+  if (!info || info.error || !info.url) { toast(info && info.error ? info.error : 'Could not open ' + fileName, 5000); return; }
+  Object.assign(cur, { item, info, url: info.url, offset: 0, streamed: !!info.streamed, duration: info.duration || 0, retried: !!force });
+  if (info.mode && info.mode !== 'direct') toast(info.mode === 'transcode' ? `Converting ${info.videoCodec || 'video'} for playback…` : 'Preparing ' + (info.reason || 'video') + '…', 2500);
+  video.src = cur.streamed ? withStart(cur.url, 0) : cur.url;
+  video.load();
   aiInvalidate();
   yaw = 0; pitch = 0;
   video.addEventListener('loadedmetadata', () => {
+    if (token !== cur.token) return;
     const remembered = load('lumen.fmt.' + fileName, null);
-    Object.assign(F, remembered || detectFormat(fileName, video.videoWidth, video.videoHeight));
+    Object.assign(F, remembered || detectFormat(fileName, video.videoWidth, video.videoHeight, info));
     syncUI();
-    video.play().catch(() => { /* autoplay may be blocked until user gesture */ });
+    if (autoplay) video.play().catch(() => { /* autoplay may need a click */ });
   }, { once: true });
+  renderQueue();
+  saveQueueState();
 }
 
-async function openFile(file) {
-  if (!file) return;
-  if (host && host.registerDroppedFile) {
-    const p = await host.registerDroppedFile(file);
-    if (p) return openPayload(p);
+/** Seek on the full-length timeline, restarting the FFmpeg stream when needed. */
+function seekTo(t) {
+  const d = totalTime();
+  t = Math.max(0, d ? Math.min(d - 0.05, t) : t);
+  if (!cur.streamed) { video.currentTime = t; return; }
+  const rel = t - cur.offset;
+  for (let i = 0; i < video.buffered.length; i++) {
+    if (rel >= video.buffered.start(i) && rel <= video.buffered.end(i) - 0.2) { video.currentTime = rel; return; }
   }
-  openPayload({ url: URL.createObjectURL(file), name: file.name });
+  const wasPlaying = !video.paused;
+  cur.offset = t;
+  video.src = withStart(cur.url, t);
+  video.load();
+  video.addEventListener('loadeddata', () => { newFrame = true; if (wasPlaying) video.play().catch(() => {}); }, { once: true });
+  aiInvalidate();
 }
 
-async function openDialog() {
-  if (host) openPayload(await host.openVideoDialog());
-  else if (server) openLibrary();
+// ------------------------------------------------------------------------------------------------
+// Queue, repeat, shuffle, playlists
+const queue = new Queue();
+queue.restore(load('lumen.queue', null));
+queue.onchange = () => { renderQueue(); saveQueueState(); syncPlaylistButtons(); };
+function saveQueueState() { save('lumen.queue', queue); }
+
+function playIndex(i, opts) { const it = queue.select(i); if (it) playItem(it, opts); }
+function playNext(auto = false) {
+  const i = queue.nextIndex(auto);
+  if (i < 0) { if (!auto) toast('End of queue'); return false; }
+  if (i === queue.index && auto) { seekTo(0); video.play().catch(() => {}); return true; }
+  playIndex(i);
+  return true;
+}
+function playPrev() {
+  if (curTime() > 3 || queue.items.length < 2) { seekTo(0); return; }
+  const i = queue.prevIndex();
+  if (i >= 0 && i !== queue.index) playIndex(i); else seekTo(0);
+}
+video.addEventListener('ended', () => { if (!playNext(true)) { video.pause(); wake(); } });
+
+/** Add items; play the first one now unless told otherwise. */
+function addAndPlay(items, { play = true, next = false } = {}) {
+  if (!items.length) return;
+  const at = queue.add(items, { after: next || (play && queue.index >= 0) });
+  if (play) playIndex(at);
+  else toast(items.length === 1 ? `Added “${items[0].name}” to the queue` : `Added ${items.length} videos to the queue`);
+}
+
+// Kept for the desktop bridge, file associations and tests: { name, path } or { name, url }
+async function openPayload(p) {
+  if (!p) return;
+  addAndPlay([{ name: p.name, path: p.path, url: p.path ? undefined : p.url, lib: p.lib }], { play: !p.enqueue });
+}
+
+async function itemsFromFiles(files) {
+  const out = [];
+  for (const f of files) {
+    if (host && host.registerDroppedFile) {
+      const p = await host.registerDroppedFile(f);
+      if (p) { out.push({ name: p.name, path: p.path }); continue; }
+    }
+    out.push({ name: f.name, file: f });
+  }
+  return out;
+}
+
+let addMode = false;   // file picker / library used for "Add videos" instead of "play"
+async function openDialog(add = false) {
+  addMode = add;
+  if (host) {
+    const list = await host.openVideoDialog();
+    if (list && list.length) addAndPlay(list.map((p) => ({ name: p.name, path: p.path })), { play: !add });
+  } else if (server) openLibrary();
   else $('fileInput').click();
 }
 
-$('fileInput').addEventListener('change', (e) => { openFile(e.target.files[0]); e.target.value = ''; });
-$('openBtn').onclick = openDialog;
+$('fileInput').addEventListener('change', async (e) => {
+  const items = await itemsFromFiles([...e.target.files]);
+  e.target.value = '';
+  addAndPlay(items, { play: !addMode });
+  addMode = false;
+});
+$('openBtn').onclick = () => openDialog(false);
 if (host) {
   host.onOpenFile(openPayload);
   host.onShowHelp(() => { $('help').hidden = false; });
@@ -93,22 +203,32 @@ if (host) {
 
 video.addEventListener('error', () => {
   const err = video.error;
+  if (!cur.item || !video.getAttribute('src')) return;
+  // The browser refused the file: retry once through FFmpeg conversion when we can.
+  if (!cur.retried && ((host && cur.item.path) || (server && cur.item.lib)) && (!cur.info || cur.info.ffmpeg !== false)) {
+    toast('Converting this video for playback…', 2500);
+    playItem(cur.item, { force: 'transcode' });
+    return;
+  }
   toast(err && err.code === 4
-    ? 'This codec/container is not supported. Try MP4 (H.264/H.265/AV1) or WebM (VP9/AV1).'
+    ? (host || server ? 'This file could not be played or converted.' : 'This format needs the desktop app or the server edition (they convert MKV, AVI, WMV…).')
     : 'Could not play this file.', 6000);
 });
 
-// Drag & drop
+// Drag & drop (several files at once go into the queue)
 let dragDepth = 0;
-window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; $('drop').hidden = false; });
-window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('drop').hidden = true; } });
-window.addEventListener('dragover', (e) => e.preventDefault());
-window.addEventListener('drop', (e) => {
+const isFileDrag = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => { if (!isFileDrag(e)) return; e.preventDefault(); dragDepth++; $('drop').hidden = false; });
+window.addEventListener('dragleave', (e) => { if (!isFileDrag(e)) return; if (--dragDepth <= 0) { dragDepth = 0; $('drop').hidden = true; } });
+window.addEventListener('dragover', (e) => { if (isFileDrag(e)) e.preventDefault(); });
+window.addEventListener('drop', async (e) => {
+  if (!isFileDrag(e)) return;
   e.preventDefault(); dragDepth = 0; $('drop').hidden = true;
-  const f = e.dataTransfer.files[0];
-  if (!f) return;
-  if (f.name.toLowerCase().endsWith('.onnx')) loadModelFile(f);
-  else openFile(f);
+  const files = [...e.dataTransfer.files];
+  const model = files.find((f) => f.name.toLowerCase().endsWith('.onnx'));
+  if (model) return loadModelFile(model);
+  const items = await itemsFromFiles(files);
+  addAndPlay(items, { play: !cur.item || video.paused || video.ended });
 });
 
 // ------------------------------------------------------------------------------------------------
@@ -503,10 +623,13 @@ $('panelClose').onclick = () => { $('panel').hidden = true; };
 
 // Transport
 function togglePlay() {
-  if (!video.src) return openDialog();
+  if (!video.getAttribute('src')) {
+    if (queue.items.length) return playIndex(queue.index >= 0 ? queue.index : queue.nextIndex());
+    return openDialog();
+  }
   if (video.paused) video.play(); else video.pause();
 }
-function seekBy(s) { if (video.duration) video.currentTime = Math.max(0, Math.min(video.duration - 0.05, video.currentTime + s)); }
+function seekBy(s) { if (totalTime()) seekTo(curTime() + s); }
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 function setSpeed(dir) {
   const i = Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(video.playbackRate) + dir));
@@ -554,22 +677,30 @@ const fmt = (t) => {
   return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
 };
 let seeking = false;
-$('seek').addEventListener('input', (e) => { seeking = true; if (video.duration) video.currentTime = (e.target.value / 1000) * video.duration; });
-$('seek').addEventListener('change', () => { seeking = false; });
+$('seek').addEventListener('input', (e) => {
+  seeking = true;
+  const t = (e.target.value / 1000) * totalTime();
+  $('cur').textContent = fmt(t);
+  if (!cur.streamed && totalTime()) seekTo(t);          // live scrubbing for directly playable files
+});
+$('seek').addEventListener('change', (e) => {
+  if (cur.streamed && totalTime()) seekTo((e.target.value / 1000) * totalTime());   // converted streams seek on release
+  seeking = false;
+});
 $('seek').addEventListener('mousemove', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
   $('seekTip').style.left = f * 100 + '%';
-  $('seekTip').textContent = fmt(f * (video.duration || 0));
+  $('seekTip').textContent = fmt(f * totalTime());
 });
 function updateTimeline() {
-  const d = video.duration || 0;
-  const f = d ? video.currentTime / d : 0;
+  const d = totalTime();
+  const f = d ? Math.min(1, curTime() / d) : 0;
   $('played').style.width = f * 100 + '%';
   if (!seeking) $('seek').value = Math.round(f * 1000);
-  $('cur').textContent = fmt(video.currentTime);
+  if (!seeking) $('cur').textContent = fmt(curTime());
   $('dur').textContent = fmt(d);
-  if (d && video.buffered.length) $('buffered').style.width = (video.buffered.end(video.buffered.length - 1) / d) * 100 + '%';
+  if (d && video.buffered.length) $('buffered').style.width = Math.min(100, ((cur.offset + video.buffered.end(video.buffered.length - 1)) / d) * 100) + '%';
 }
 
 function renderStats() {
@@ -655,6 +786,11 @@ window.addEventListener('keydown', (e) => {
     case 'ArrowUp': S.volume = Math.min(1, S.volume + 0.05); S.muted = false; persist(); syncUI(); toast(`Volume ${Math.round(S.volume * 100)}%`); break;
     case 'ArrowDown': S.volume = Math.max(0, S.volume - 0.05); persist(); syncUI(); toast(`Volume ${Math.round(S.volume * 100)}%`); break;
     case 'm': case 'M': $('muteBtn').click(); break;
+    case 'n': case 'N': playNext(false); break;
+    case 'b': case 'B': playPrev(); break;
+    case 'h': case 'H': $('shuffleBtn').click(); break;
+    case 't': case 'T': $('repeatBtn').click(); break;
+    case 'q': case 'Q': toggleQueue(); break;
     case 'f': case 'F': toggleFullscreen(); break;
     case 'o': case 'O': openDialog(); break;
     case 'u': case 'U': setUpscale(UPS[(UPS.findIndex((u) => u.v === S.upscale) + 1) % UPS.length].v); break;
@@ -673,7 +809,7 @@ window.addEventListener('keydown', (e) => {
     case '[': setSpeed(-1); toast(`Speed ${video.playbackRate}×`); break;
     case ']': setSpeed(1); toast(`Speed ${video.playbackRate}×`); break;
     case '?': $('help').hidden = !$('help').hidden; break;
-    case 'Escape': $('help').hidden = true; $('panel').hidden = true; $('library').hidden = true; closePops(); break;
+    case 'Escape': $('help').hidden = true; $('panel').hidden = true; $('library').hidden = true; toggleQueue(false); closePops(); break;
     default: return;
   }
   if (handled) e.preventDefault();
@@ -691,11 +827,174 @@ function toast(msg, ms = 1800) {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // ------------------------------------------------------------------------------------------------
+// Queue panel & saved playlists
+const PL = {
+  async list() {
+    if (server) { try { return await (await fetch('/api/playlists', { cache: 'no-store' })).json(); } catch { return []; } }
+    return load('lumen.playlists', []);
+  },
+  async saveAll(lists) {
+    if (server) {
+      const r = await fetch('/api/playlists', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lists) });
+      if (!r.ok) throw new Error('Could not save playlists on the server');
+    } else save('lumen.playlists', lists);
+  },
+};
+
+function syncPlaylistButtons() {
+  $('shuffleBtn').classList.toggle('on', queue.shuffle);
+  $('shuffleBtn').title = `Shuffle: ${queue.shuffle ? 'on' : 'off'} (H)`;
+  const r = queue.repeat;
+  $('repeatBtn').classList.toggle('on', r !== 'off');
+  $('repeatBtn').innerHTML = `<svg><use href="#i-${r === 'one' ? 'repeat1' : 'repeat'}"/></svg>`;
+  $('repeatBtn').title = `Repeat: ${{ off: 'off', all: 'all', one: 'one' }[r]} (T)`;
+  $('queueBtn').classList.toggle('on', !$('queue').hidden);
+}
+
+let dragFrom = -1;
+function renderQueue() {
+  const ol = $('qList');
+  if (!ol) return;
+  $('qName').textContent = queue.name || 'Queue';
+  $('qCount').textContent = queue.items.length ? `${queue.items.length} video${queue.items.length > 1 ? 's' : ''}` : '';
+  ol.innerHTML = '';
+  if (!queue.items.length) {
+    ol.innerHTML = '<li class="empty">The queue is empty.<br>Open several videos, drop files here, or use + in the library.</li>';
+    return;
+  }
+  queue.items.forEach((it, i) => {
+    const li = document.createElement('li');
+    li.draggable = true;
+    li.className = i === queue.index ? 'cur' : '';
+    li.innerHTML = `<svg class="grip"><use href="#i-grip"/></svg><span class="num">${i === queue.index ? '▶' : i + 1}</span><span class="nm" title="${esc(it.name)}">${esc(it.name)}</span><button class="x" title="Remove">✕</button>`;
+    li.onclick = (e) => { if (e.target.closest('.x')) { queue.remove(i); return; } playIndex(i); };
+    li.addEventListener('dragstart', (e) => { dragFrom = i; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); });
+    li.addEventListener('dragend', () => { dragFrom = -1; li.classList.remove('dragging'); });
+    li.addEventListener('dragover', (e) => {
+      if (dragFrom < 0) return;
+      e.preventDefault();
+      const after = e.offsetY > li.clientHeight / 2;
+      li.classList.toggle('drop-after', after); li.classList.toggle('drop-before', !after);
+    });
+    li.addEventListener('dragleave', () => li.classList.remove('drop-after', 'drop-before'));
+    li.addEventListener('drop', (e) => {
+      if (dragFrom < 0) return;
+      e.preventDefault(); e.stopPropagation();
+      const after = e.offsetY > li.clientHeight / 2;
+      let to = i + (after ? 1 : 0);
+      if (dragFrom < to) to--;
+      queue.move(dragFrom, Math.max(0, Math.min(queue.items.length - 1, to)));
+    });
+    ol.append(li);
+  });
+  const curLi = ol.querySelector('li.cur');
+  if (curLi && !$('queue').hidden) curLi.scrollIntoView({ block: 'nearest' });
+}
+
+async function renderPlaylists() {
+  const ul = $('plList');
+  const lists = await PL.list();
+  ul.innerHTML = '';
+  $('plNote').textContent = server ? 'Playlists are saved on the server and shared by every device.'
+    : host ? 'Playlists are saved on this computer.' : 'Files opened from this device only stay in a playlist until the page is closed.';
+  if (!lists.length) { ul.innerHTML = '<li class="empty">No playlists yet.<br>Build a queue, then choose “Save as playlist”.</li>'; return; }
+  for (const pl of lists) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="nm" title="${esc(pl.name)}">${esc(pl.name)}</span><span class="meta">${pl.items.length}</span>
+      <button class="act" data-a="play">Play</button><button class="act" data-a="add">Add</button><button class="act" data-a="ren">Rename</button><button class="act" data-a="del">Delete</button>`;
+    li.onclick = async (e) => {
+      const a = e.target.dataset.a;
+      if (a === 'play' || (!a && !e.target.closest('input'))) {
+        queue.replace(pl.items, pl.name);
+        if (queue.items.length) playIndex(queue.shuffle ? queue.order[0] : 0);
+        showQueueTab('queue');
+      } else if (a === 'add') {
+        addAndPlay(pl.items.map((x) => ({ ...x })), { play: false });
+      } else if (a === 'ren') {
+        const nm = li.querySelector('.nm');
+        const input = Object.assign(document.createElement('input'), { type: 'text', value: pl.name, className: 'q-input' });
+        nm.replaceWith(input); input.focus(); input.select();
+        const done = async (ok) => {
+          if (ok && input.value.trim()) { pl.name = input.value.trim(); await PL.saveAll(lists); }
+          renderPlaylists();
+        };
+        input.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') done(true); if (ev.key === 'Escape') done(false); };
+        input.onblur = () => done(true);
+      } else if (a === 'del') {
+        if (e.target.textContent !== 'Sure?') { e.target.textContent = 'Sure?'; setTimeout(() => { e.target.textContent = 'Delete'; }, 2500); return; }
+        await PL.saveAll(lists.filter((x) => x !== pl));
+        renderPlaylists();
+      }
+    };
+    ul.append(li);
+  }
+}
+
+function showQueueTab(tab) {
+  $('qTabQueue').classList.toggle('on', tab === 'queue');
+  $('qTabLists').classList.toggle('on', tab === 'lists');
+  $('qQueueView').hidden = tab !== 'queue';
+  $('qListsView').hidden = tab !== 'lists';
+  if (tab === 'lists') renderPlaylists(); else renderQueue();
+}
+
+function toggleQueue(show = $('queue').hidden) {
+  $('queue').hidden = !show;
+  if (show) showQueueTab('queue');
+  syncPlaylistButtons();
+}
+
+async function saveQueueAsPlaylist() {
+  const items = queue.serializable();
+  if (!items.length) return toast(queue.items.length ? 'Videos opened from this device can’t be saved in a playlist' : 'The queue is empty');
+  const foot = $('qQueueView').querySelector('.q-foot');
+  const old = foot.innerHTML;
+  foot.innerHTML = '<input type="text" class="q-input" id="qSaveName" placeholder="Playlist name"><button class="primary sm" id="qSaveOk">Save</button>';
+  const input = $('qSaveName');
+  input.value = queue.name || '';
+  input.focus();
+  const finish = async (ok) => {
+    const name = input.value.trim();
+    foot.innerHTML = old;
+    bindQueueFoot();
+    if (!ok || !name) return;
+    const lists = await PL.list();
+    const existing = lists.find((l) => l.name.toLowerCase() === name.toLowerCase());
+    if (existing) { existing.items = items; existing.updated = Date.now(); } else lists.push({ id: Date.now().toString(36), name, items, updated: Date.now() });
+    try { await PL.saveAll(lists); queue.name = name; renderQueue(); saveQueueState(); toast(`Saved playlist “${name}”`); } catch (e) { toast(e.message, 4000); }
+  };
+  input.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); };
+  $('qSaveOk').onclick = () => finish(true);
+}
+
+function bindQueueFoot() {
+  $('qAdd').onclick = () => openDialog(true);
+  $('qSave').onclick = saveQueueAsPlaylist;
+  $('qClear').onclick = () => {
+    if ($('qClear').textContent !== 'Sure?') { $('qClear').textContent = 'Sure?'; setTimeout(() => { if ($('qClear')) $('qClear').textContent = 'Clear'; }, 2500); return; }
+    const keep = queue.current;
+    queue.clear();
+    if (keep) { queue.add(keep); queue.select(0); }
+  };
+}
+bindQueueFoot();
+$('qTabQueue').onclick = () => showQueueTab('queue');
+$('qTabLists').onclick = () => showQueueTab('lists');
+$('qClose').onclick = () => toggleQueue(false);
+$('queueBtn').onclick = () => toggleQueue();
+$('prevBtn').onclick = playPrev;
+$('nextBtn').onclick = () => playNext(false);
+$('shuffleBtn').onclick = () => { queue.setShuffle(!queue.shuffle); toast(`Shuffle ${queue.shuffle ? 'on' : 'off'}`); };
+$('repeatBtn').onclick = () => { const r = queue.cycleRepeat(); toast({ off: 'Repeat off', all: 'Repeat all', one: 'Repeat one' }[r]); };
+syncPlaylistButtons();
+renderQueue();
+
+// ------------------------------------------------------------------------------------------------
 // Server edition: media library
 let libPath = load('lumen.libPath', '/');
+let libVideos = [];
 const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="currentColor" opacity=".85"/></svg>';
 const ICON_VIDEO = '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/></svg>';
-const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtSize = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB');
 function vrTag(name) {
   const f = detectFormat(name, 0, 0);
@@ -705,6 +1004,7 @@ function vrTag(name) {
 
 async function openLibrary(path = libPath) {
   $('library').hidden = false;
+  $('library').querySelector('h2').textContent = addMode ? 'Add to queue' : 'Library';
   if (!$('libSearch').value) await showFolder(path);
   setTimeout(() => $('libSearch').focus(), 50);
 }
@@ -751,11 +1051,18 @@ async function showFolder(path, query = '') {
     b.onclick = () => showFolder(f.path);
     list.append(b);
   }
+  libVideos = data.videos.map((v) => ({ name: v.name, lib: v.path }));
+  $('libActions').hidden = !libVideos.length || !!query;
   for (const v of data.videos) {
     const b = document.createElement('button');
     const tag = vrTag(v.name);
-    b.innerHTML = `${ICON_VIDEO}<span class="name">${esc(v.name)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}<span class="meta">${fmtSize(v.size)}</span>`;
-    b.onclick = () => { $('library').hidden = true; openPayload({ url: v.url, name: v.name }); };
+    b.innerHTML = `${ICON_VIDEO}<span class="name">${esc(v.name)}</span>${tag ? `<span class="tag">${tag}</span>` : ''}<span class="meta">${fmtSize(v.size)}</span><span class="add" role="button" title="Add to queue"><svg><use href="#i-plus"/></svg></span>`;
+    b.onclick = (e) => {
+      const item = { name: v.name, lib: v.path };
+      if (e.target.closest('.add') || addMode) { addAndPlay([item], { play: false }); return; }
+      $('library').hidden = true;
+      addAndPlay([item], { play: true });
+    };
     list.append(b);
   }
   if (!data.folders.length && !data.videos.length) list.innerHTML += `<div class="empty">${query ? 'No matching videos.' : 'No videos in this folder.'}</div>`;
@@ -767,8 +1074,11 @@ $('libSearch').addEventListener('input', (e) => {
   const q = e.target.value.trim();
   libSearchTimer = setTimeout(() => showFolder(libPath, q), 250);
 });
-$('libClose').onclick = () => { $('library').hidden = true; };
-$('library').onclick = (e) => { if (e.target.id === 'library') $('library').hidden = true; };
+$('libClose').onclick = () => { $('library').hidden = true; addMode = false; };
+$('libPlayAll').onclick = () => { queue.replace(libVideos, libPath.split('/').pop() || 'Media'); if (queue.shuffle) queue.setShuffle(false); $('library').hidden = true; playIndex(0); };
+$('libShuffleAll').onclick = () => { queue.replace(libVideos, libPath.split('/').pop() || 'Media'); queue.setShuffle(true); $('library').hidden = true; playIndex(queue.order[0]); };
+$('libAddAll').onclick = () => addAndPlay(libVideos.map((x) => ({ ...x })), { play: false });
+$('library').onclick = (e) => { if (e.target.id === 'library') { $('library').hidden = true; addMode = false; } };
 $('libLocal').onclick = () => { $('library').hidden = true; $('fileInput').click(); };
 
 async function detectServer() {
@@ -846,4 +1156,4 @@ syncUI();
 if (S.upscale === 'ai') { S.upscale = 'gpu'; syncUI(); }   // AI is re-enabled explicitly each session (model load can be slow)
 
 // Expose for automated tests / debugging.
-window.__lumen = { renderer, ai, F, S, setFormat, setUpscale, openPayload, loadModel, state: () => ({ yaw, pitch, aiValid, lastScale }) };
+window.__lumen = { renderer, ai, F, S, queue, cur, setFormat, setUpscale, openPayload, addAndPlay, seekTo, loadModel, state: () => ({ yaw, pitch, aiValid, lastScale, time: curTime(), total: totalTime() }) };

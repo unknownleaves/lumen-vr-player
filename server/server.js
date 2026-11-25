@@ -19,6 +19,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { fileResponse, safeJoin } = require('../lib/serve');
+const media = require('../lib/media');
 
 const ROOT = path.resolve(__dirname, '..');
 const MEDIA_DIR = path.resolve(process.env.MEDIA_DIR || '/media');
@@ -28,7 +29,19 @@ const HTTP_PORT = +(process.env.HTTP_PORT ?? 8080);
 const HTTPS_PORT = +(process.env.HTTPS_PORT ?? 8443);
 const PASSWORD = process.env.LUMEN_PASSWORD || '';
 const VERSION = require('../package.json').version;
-const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.ogv']);
+const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.ogv', '.avi', '.wmv', '.flv', '.ts', '.m2ts', '.mts',
+  '.mpg', '.mpeg', '.vob', '.3gp', '.divx', '.asf', '.f4v', '.rm', '.rmvb']);
+const PLAYLISTS_FILE = () => path.join(CONFIG_DIR, 'playlists.json');
+const encPath = (rel) => rel.split('/').map(encodeURIComponent).join('/');
+
+function readBody(req, limit = 2e6) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', (c) => { size += c.length; if (size > limit) { reject(new Error('too large')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
 
 const ISOLATION = {
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -119,11 +132,51 @@ async function handle(req, res) {
       return res.end();
     }
     if (p === '/api/info') {
-      return json(res, 200, { server: true, version: VERSION, https: HTTPS_PORT || null, http: HTTP_PORT || null });
+      return json(res, 200, { server: true, version: VERSION, https: HTTPS_PORT || null, http: HTTP_PORT || null, ffmpeg: !!media.findFfmpeg() });
     }
     if (p === '/api/library') {
       const r = url.searchParams.get('q') ? { path: '/', folders: [], videos: await search(url.searchParams.get('q')) } : await listFolder(url.searchParams.get('path') || '/');
       return r ? json(res, 200, r) : json(res, 404, { error: 'Folder not found' });
+    }
+    if (p === '/api/probe') {
+      const rel = url.searchParams.get('path') || '';
+      const f = safeJoin(MEDIA_DIR, encPath(rel));
+      if (!f || !fs.existsSync(f)) return json(res, 404, { error: 'File not found' });
+      const caps = { hevc: url.searchParams.get('hevc') === '1', av1: url.searchParams.get('av1') !== '0' };
+      const d = await media.describe(f, caps);
+      const direct = '/media' + encPath(rel);
+      const streamUrl = '/stream' + encPath(rel) + `?mode=${d.mode}&copyAudio=${d.copyAudio ? 1 : 0}&codec=${encodeURIComponent(d.videoCodec)}`;
+      return json(res, 200, { ...d, name: path.basename(f), lib: rel, url: d.mode === 'direct' ? direct : streamUrl, streamed: d.mode !== 'direct',
+        fallbackUrl: '/stream' + encPath(rel) + `?mode=transcode&copyAudio=${d.copyAudio ? 1 : 0}` });
+    }
+    if (p.startsWith('/stream/')) {
+      const f = safeJoin(MEDIA_DIR, url.pathname.slice('/stream'.length));
+      if (!f) return json(res, 403, { error: 'Forbidden' });
+      const q = url.searchParams;
+      let child;
+      try {
+        child = media.stream(f, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '' });
+      } catch (e) { return json(res, 500, { error: e.message }); }
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store', ...ISOLATION });
+      child.stdout.pipe(res);
+      const stop = () => child.kill('SIGKILL');
+      req.on('close', stop);
+      res.on('close', stop);
+      return;
+    }
+    if (p === '/api/playlists') {
+      if (req.method === 'PUT' || req.method === 'POST') {
+        const body = JSON.parse(await readBody(req));
+        if (!Array.isArray(body)) return json(res, 400, { error: 'Expected an array' });
+        fs.mkdirSync(CONFIG_DIR, { recursive: true });
+        const tmp = PLAYLISTS_FILE() + '.tmp';
+        await fs.promises.writeFile(tmp, JSON.stringify(body, null, 1));
+        await fs.promises.rename(tmp, PLAYLISTS_FILE());
+        return json(res, 200, { ok: true });
+      }
+      let list = [];
+      try { list = JSON.parse(await fs.promises.readFile(PLAYLISTS_FILE(), 'utf8')); } catch { /* none yet */ }
+      return json(res, 200, list);
     }
     if (p === '/api/models') {
       let files = [];
@@ -166,6 +219,7 @@ if (require.main === module) {
   console.log(`  media:  ${MEDIA_DIR}${fs.existsSync(MEDIA_DIR) ? '' : '  (missing! mount your videos here)'}`);
   console.log(`  models: ${MODELS_DIR}`);
   if (PASSWORD) console.log('  password protection: on (user "lumen")');
+  console.log(`  ffmpeg: ${media.findFfmpeg() || 'not found — only browser-native formats will play'}`);
   if (HTTP_PORT) http.createServer(handle).listen(HTTP_PORT, () => console.log(`  http://<server-ip>:${HTTP_PORT}`));
   if (HTTPS_PORT) {
     try {

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('lumen', {
   listModels: () => ipcRenderer.invoke('list-models'),
   openModelsFolder: () => ipcRenderer.invoke('open-models-folder'),
   // Turn a dropped File into a streamable app:// URL (keeps seeking fast for huge VR files).
+  prepare: (p, caps) => ipcRenderer.invoke('prepare', p, caps),
   registerDroppedFile: (file) => {
     try { return ipcRenderer.invoke('register-path', webUtils.getPathForFile(file)); } catch { return Promise.resolve(null); }
   },

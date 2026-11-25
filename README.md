@@ -45,10 +45,7 @@ The app checks GitHub Releases at startup and every 6 hours. You can turn this o
 
 ### Publishing a new version
 
-```bash
-git tag v1.0.1
-git push origin v1.0.1
-```
+On GitHub, open **Actions → Build installers → Run workflow**, type the new version (e.g. `1.0.1`, higher than the last one), and click **Run workflow**. (Pushing a tag like `v1.0.1` does the same.)
 
 GitHub Actions builds every installer, stamps it with the tag's version, and publishes a release with the update files (`latest*.yml`, `*.blockmap`). Installed copies see the new version within a few hours, or right away with **Check now**.
 

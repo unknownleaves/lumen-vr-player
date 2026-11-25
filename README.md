@@ -60,7 +60,7 @@ GitHub Actions builds every installer, stamps it with the tag's version, and pub
 Download **`Lumen-VR-Player-x.y.z.apk`** from the [Releases page](https://github.com/unknownleaves/lumen-vr-player/releases/latest) on your phone, open it, and allow "Install unknown apps" for your browser when Android asks. Updates show up inside the app: tap **Download**, then open the new APK.
 
 * **Open videos** plays files stored on the phone. It handles the formats Android can decode itself (MP4, WebM, and on most phones MKV with H.264/HEVC).
-* **Connect to server** links the app to your ZimaOS server (enter its address, e.g. `192.168.1.50`). You can then browse its library, play any format (the server converts what the phone can't play), and share playlists with your other devices. The app always uses its own built-in screens and only fetches videos and lists from the server, which needs server version 1.4.2 or newer.
+* **Connect to server** links the app to your ZimaOS server (enter its address, e.g. `192.168.1.50`). You can then browse its library, play any format (the server converts what the phone can't play), and share playlists with your other devices. The app always uses its own built-in screens and relays requests to the server itself, so it works with any server version.
 * Pinch to zoom, drag to move around, and tilt or turn the phone to look around 360°/180° videos. The Back button closes panels first.
 
 ## ZimaOS / NAS server (Docker)

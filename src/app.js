@@ -12,11 +12,13 @@ let server = null;                            // set when served by the Docker /
 const android = window.LumenAndroid || null;  // Android app bridge
 let API = '';                                 // base URL of the Lumen server API ('' = same origin)
 const apiUrl = (p) => (p && p.startsWith('/') ? API + p : p);
+// Android: the app relays everything under /server/ to your Lumen server, so requests stay same-origin.
 function androidServerOrigin() {
-  if (!android) return '';
-  const saved = android.getServer();
-  if (!saved) return '';
-  try { return new URL(saved).origin; } catch { return ''; }
+  if (!android || !android.getServer()) return '';
+  return '/server';
+}
+function androidServerHost() {
+  try { return new URL(android.getServer()).host; } catch { return android.getServer(); }
 }
 const video = $('video');
 const canvas = $('stage');
@@ -1182,7 +1184,10 @@ const PL = {
     return load('lumen.playlists', []);
   },
   async saveAll(lists) {
-    if (server) {
+    if (server && android && API) {
+      const code = android.serverSend('PUT', '/api/playlists', JSON.stringify(lists));
+      if (code < 200 || code >= 300) throw new Error('Could not save playlists on the server');
+    } else if (server) {
       const r = await fetch(apiUrl('/api/playlists'), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lists) });
       if (!r.ok) throw new Error('Could not save playlists on the server');
     } else save('lumen.playlists', lists);
@@ -1459,9 +1464,10 @@ if (android) {
 async function detectServer() {
   if (host) return;
   API = androidServerOrigin();
-  const hostName = API ? new URL(API).hostname : location.hostname;
+  const hostName = API ? androidServerHost() : location.hostname;
   try {
     const r = await fetch(apiUrl('/api/info'), { cache: 'no-store' });
+    if (r.status === 502 && API) throw new Error('unreachable');
     if (r.status === 401 && API) throw Object.assign(new Error('password'), { code: 'password' });
     const info = r.ok ? await r.json() : null;
     if (!info || !info.server) { if (API) throw new Error('not a Lumen server'); return; }
@@ -1481,10 +1487,11 @@ async function detectServer() {
     renderHome();
   } catch (e) {
     if (!API) return;   // plain static hosting, nothing to do
-    let why = `Can't connect to your server <b>${esc(hostName)}</b>. Check that it's on and that this phone is on the same Wi-Fi. If it is, update Lumen VR Player on ZimaOS (this app needs server version 1.4.2 or newer).`;
+    let why = `Can't reach your server <b>${esc(hostName)}</b>. Check that it's on, that this phone is on the same Wi-Fi, and that the address and port are right (usually 8095).`;
     if (e.code === 'password') why = `Your server <b>${esc(hostName)}</b> has a password, which the phone app doesn't support yet. Remove LUMEN_PASSWORD on the server, or use the phone's own videos.`;
-    else if (e.message === 'not a Lumen server') why = `<b>${esc(hostName)}</b> answered, but it isn't a Lumen server, or it's an old version. Check the address and port (usually 8095), or update Lumen VR Player on ZimaOS.`;
-    showServerNote(`${why} <button id="serverRetry">Try again</button> · <button id="usePhone">Use this phone's videos</button>`);
+    else if (e.message === 'not a Lumen server') why = `<b>${esc(hostName)}</b> answered, but it isn't a Lumen server. Check the port (usually 8095).`;
+    showServerNote(`${why} <button id="serverRetry">Try again</button> · <button id="serverChange">Change address</button> · <button id="usePhone">Use this phone's videos</button>`);
+    $('serverChange').onclick = () => $('serverConnectBtn').click();
     $('serverRetry').onclick = () => { $('serverNote').innerHTML = 'Connecting…'; detectServer(); };
   }
 }

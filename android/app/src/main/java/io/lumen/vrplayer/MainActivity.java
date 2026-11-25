@@ -31,8 +31,18 @@ import android.widget.FrameLayout;
 
 import androidx.webkit.WebViewAssetLoader;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -144,10 +154,98 @@ public class MainActivity extends Activity {
         return s.isEmpty() ? null : Uri.parse(s).getHost();
     }
 
+
+    // ---------------------------------------------------------------------------------------------
+    // Server relay: the player asks https://appassets.androidplatform.net/server/<path> and the app
+    // fetches http(s)://<your server>/<path> itself. To the WebView everything is then same-origin,
+    // so no CORS, mixed-content or local-network restrictions apply, and any Lumen server version works.
+
+    /** "http://192.168.1.50:8095" from whatever address was saved (older versions saved a page URL). */
+    private String serverOrigin() {
+        String saved = prefs.getString("server", "");
+        if (saved.isEmpty()) return null;
+        Uri u = Uri.parse(saved);
+        if (u.getScheme() == null || u.getHost() == null) return null;
+        return u.getScheme() + "://" + u.getHost() + (u.getPort() > 0 ? ":" + u.getPort() : "");
+    }
+
+    private HttpURLConnection openServer(String pathAndQuery, String method) throws IOException {
+        String origin = serverOrigin();
+        if (origin == null) throw new IOException("No server configured");
+        HttpURLConnection c = (HttpURLConnection) new URL(origin + pathAndQuery).openConnection();
+        if (c instanceof HttpsURLConnection) trustServerCertificate((HttpsURLConnection) c);
+        c.setRequestMethod(method);
+        c.setConnectTimeout(6000);
+        c.setReadTimeout(0);                 // video streams stay open for as long as you watch
+        c.setInstanceFollowRedirects(true);
+        c.setUseCaches(false);
+        return c;
+    }
+
+    /** Lumen servers use a self-signed certificate; trust it only on connections to your own server. */
+    private static void trustServerCertificate(HttpsURLConnection c) {
+        try {
+            TrustManager[] all = { new X509TrustManager() {
+                public void checkClientTrusted(X509Certificate[] chain, String auth) { }
+                public void checkServerTrusted(X509Certificate[] chain, String auth) { }
+                public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+            } };
+            SSLContext ctx = SSLContext.getInstance("TLS");
+            ctx.init(null, all, new java.security.SecureRandom());
+            c.setSSLSocketFactory(ctx.getSocketFactory());
+            c.setHostnameVerifier((h, session) -> true);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private WebResourceResponse proxyToServer(WebResourceRequest request) {
+        Uri u = request.getUrl();
+        String pathAndQuery = u.getEncodedPath().substring("/server".length()) + (u.getEncodedQuery() != null ? "?" + u.getEncodedQuery() : "");
+        Map<String, String> out = new HashMap<>();
+        out.put("Cache-Control", "no-store");
+        out.put("Cross-Origin-Resource-Policy", "same-origin");
+        try {
+            HttpURLConnection c = openServer(pathAndQuery, request.getMethod() == null ? "GET" : request.getMethod());
+            Map<String, String> in = request.getRequestHeaders();
+            if (in != null) {
+                for (Map.Entry<String, String> h : in.entrySet()) {
+                    String k = h.getKey();
+                    if (k.equalsIgnoreCase("Range") || k.equalsIgnoreCase("Accept")) c.setRequestProperty(k, h.getValue());
+                }
+            }
+            int code = c.getResponseCode();
+            InputStream body = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (body == null) body = new ByteArrayInputStream(new byte[0]);
+            String type = c.getContentType() == null ? "application/octet-stream" : c.getContentType();
+            String mime = type.split(";")[0].trim();
+            String charset = type.toLowerCase(Locale.ROOT).contains("charset=utf-8") || mime.startsWith("text/") || mime.endsWith("json") ? "utf-8" : null;
+            for (String k : new String[]{"Content-Length", "Content-Range", "Accept-Ranges"}) {
+                String v = c.getHeaderField(k);
+                if (v != null) out.put(k, v);
+            }
+            String reason = c.getResponseMessage();
+            if (reason == null || reason.isEmpty()) reason = code == 206 ? "Partial Content" : "OK";
+            if (code >= 300 && code < 400) code = 502;      // WebResourceResponse can't carry redirects
+            return new WebResourceResponse(mime, charset, code, reason, out, body);
+        } catch (IOException e) {
+            String msg = "{\"error\":\"unreachable\",\"detail\":" + jsonString(String.valueOf(e.getMessage())) + "}";
+            return new WebResourceResponse("application/json", "utf-8", 502, "Bad Gateway", out,
+                    new ByteArrayInputStream(msg.getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+
+    private static String jsonString(String s) {
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ") + "\"";
+    }
+
     private class Client extends WebViewClient {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-            return assetLoader.shouldInterceptRequest(request.getUrl());
+            Uri u = request.getUrl();
+            if (ASSET_HOST.equals(u.getHost()) && u.getPath() != null && u.getPath().startsWith("/server/")) {
+                return proxyToServer(request);
+            }
+            return assetLoader.shouldInterceptRequest(u);
         }
 
         @Override
@@ -313,6 +411,24 @@ public class MainActivity extends Activity {
             if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) return;
             prefs.edit().putString("server", url).apply();
             runOnUiThread(() -> web.loadUrl(LOCAL_URL));
+        }
+
+        /** PUT/POST with a JSON body to the server (runs on a background binder thread). Returns the HTTP status. */
+        @JavascriptInterface
+        public int serverSend(String method, String path, String json) {
+            try {
+                HttpURLConnection c = openServer(path, "PUT".equals(method) ? "PUT" : "POST");
+                c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json");
+                byte[] data = (json == null ? "" : json).getBytes(StandardCharsets.UTF_8);
+                c.setFixedLengthStreamingMode(data.length);
+                try (OutputStream os = c.getOutputStream()) { os.write(data); }
+                int code = c.getResponseCode();
+                c.disconnect();
+                return code;
+            } catch (Exception e) {
+                return 0;
+            }
         }
 
         @JavascriptInterface

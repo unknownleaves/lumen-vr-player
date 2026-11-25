@@ -124,6 +124,7 @@ sudo apt install ./dist/lumen-vr-player_1.0.0_amd64.deb
 | Key | Action |
 |---|---|
 | `Space` / `K` | Play / pause |
+| `Backspace` / Home button | Back to the start screen to pick another video (Continue watching · Recently played) |
 | `←` `→` / `J` `L` | Seek 5 s / 10 s |
 | `,` `.` | Step one frame back/forward |
 | `↑` `↓` · `M` | Volume · mute |

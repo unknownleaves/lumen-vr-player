@@ -175,6 +175,7 @@ async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
   }, { once: true });
   renderQueue();
   saveQueueState();
+  addRecent(item);
 }
 
 /** Seek on the full-length timeline, restarting the FFmpeg stream when needed. */
@@ -788,6 +789,7 @@ $('panelClose').onclick = () => { $('panel').hidden = true; };
 
 // Transport
 function togglePlay() {
+  if (!document.body.classList.contains('loaded') && cur.item) return resumePlayer();
   if (!video.getAttribute('src')) {
     if (queue.items.length) return playIndex(queue.index >= 0 ? queue.index : queue.nextIndex());
     return openDialog();
@@ -989,6 +991,8 @@ window.addEventListener('keydown', (e) => {
   if (e.target.matches('input[type=text], input[type=search], select') || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key;
   const handled = true;
+  const onHome = !document.body.classList.contains('loaded');
+  if (onHome && !['o', 'O', '?', ' ', 'Escape', 'k', 'K'].includes(k)) return;
   switch (k) {
     case ' ': case 'k': case 'K': togglePlay(); break;
     case 'ArrowLeft': if (e.shiftKey && zoom > 1) panBy(60, 0); else seekBy(-5); break;
@@ -1008,6 +1012,7 @@ window.addEventListener('keydown', (e) => {
     case 'h': case 'H': $('shuffleBtn').click(); break;
     case 't': case 'T': $('repeatBtn').click(); break;
     case 'q': case 'Q': toggleQueue(); break;
+    case 'Backspace': goHome(); break;
     case 'f': case 'F': toggleFullscreen(); break;
     case 'o': case 'O': openDialog(); break;
     case 'u': case 'U': setUpscale(UPS[(UPS.findIndex((u) => u.v === S.upscale) + 1) % UPS.length].v); break;
@@ -1042,6 +1047,96 @@ function toast(msg, ms = 1800) {
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+
+// ------------------------------------------------------------------------------------------------
+// Home / start screen: go back to pick another video, resume, recently played
+const RECENT_MAX = 12;
+const itemKey = (it) => it.path || it.lib || it.url || it.name;
+function addRecent(item) {
+  if (!item || item.file) return;                     // files picked from the device can't be reopened later
+  const entry = { name: item.name, path: item.path, lib: item.lib, url: item.url && !String(item.url).startsWith('blob:') ? item.url : undefined, at: Date.now() };
+  if (!entry.path && !entry.lib && !entry.url) return;
+  const list = load('lumen.recent', []).filter((r) => itemKey(r) !== itemKey(entry));
+  list.unshift(entry);
+  save('lumen.recent', list.slice(0, RECENT_MAX));
+}
+function savePosition() {
+  if (!cur.item || !totalTime()) return;
+  const pos = load('lumen.positions', {});
+  const t = curTime(), d = totalTime();
+  const k = itemKey(cur.item);
+  if (t > 5 && t < d - 10) pos[k] = Math.round(t); else delete pos[k];   // forget finished videos
+  const keys = Object.keys(pos);
+  if (keys.length > 200) delete pos[keys[0]];
+  save('lumen.positions', pos);
+}
+setInterval(() => { if (!video.paused) savePosition(); }, 5000);
+video.addEventListener('pause', savePosition);
+
+const ago = (ms) => {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + ' min ago';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + ' h ago';
+  const d = Math.round(h / 24);
+  return d === 1 ? 'yesterday' : d + ' days ago';
+};
+
+function renderHome() {
+  // Resume the video that's loaded right now
+  const hasCurrent = !!(cur.item && video.getAttribute('src'));
+  $('resumeBtn').hidden = !hasCurrent;
+  if (hasCurrent) {
+    $('resumeName').textContent = cur.item.name;
+    $('resumeTime').textContent = totalTime() ? `${fmt(curTime())} / ${fmt(totalTime())}` : '';
+  }
+  // Recently played (that this device can reopen)
+  const canReopen = (r) => (r.path && host) || (r.lib && server) || r.url;
+  const list = load('lumen.recent', []).filter(canReopen).filter((r) => !hasCurrent || itemKey(r) !== itemKey(cur.item));
+  const pos = load('lumen.positions', {});
+  $('recent').hidden = !list.length;
+  const ul = $('recentList');
+  ul.innerHTML = '';
+  for (const r of list.slice(0, 8)) {
+    const li = document.createElement('li');
+    const p = pos[itemKey(r)];
+    li.innerHTML = `<svg><use href="#i-play"/></svg><span class="nm" title="${esc(r.name)}">${esc(r.name)}</span><span class="meta">${p ? 'at ' + fmt(p) + ' · ' : ''}${ago(r.at)}</span>`;
+    li.onclick = () => openRecent(r);
+    ul.append(li);
+  }
+}
+
+async function openRecent(r) {
+  const item = { name: r.name, path: r.path, lib: r.lib, url: r.url };
+  const at = load('lumen.positions', {})[itemKey(r)] || 0;
+  const i = queue.add([item], { after: queue.index >= 0 });
+  queue.select(i);
+  await playItem(queue.current, { at });
+}
+
+function goHome() {
+  if (!document.body.classList.contains('loaded')) return;
+  savePosition();
+  video.pause();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  for (const id of ['panel', 'queue', 'library', 'help']) $(id).hidden = true;
+  closePops();
+  if (xr.active) xr.exit();
+  document.body.classList.remove('loaded', 'idle');
+  renderHome();
+}
+
+function resumePlayer() {
+  if (!cur.item) return;
+  document.body.classList.add('loaded');
+  video.play().catch(() => {});
+}
+
+$('homeBtn').onclick = goHome;
+$('resumeBtn').onclick = resumePlayer;
+$('recentClear').onclick = () => { save('lumen.recent', []); renderHome(); };
 
 // ------------------------------------------------------------------------------------------------
 // Queue panel & saved playlists
@@ -1435,9 +1530,11 @@ window.__lumenBack = () => {
   }
   if (document.fullscreenElement) { document.exitFullscreen(); return true; }
   if (zoom > 1) { resetZoom(false); return true; }
+  if (document.body.classList.contains('loaded')) { goHome(); return true; }
   return false;
 };
 
+renderHome();
 syncUI();
 if (S.upscale === 'ai') { S.upscale = 'gpu'; syncUI(); }   // AI is re-enabled explicitly each session (model load can be slow)
 

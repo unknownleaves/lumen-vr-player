@@ -60,6 +60,9 @@ button.ghost.sm { padding: 7px 11px; font-size: 13px; font-weight: 500; border-r
 body.zoomed #stage { cursor: grab; }
 body.zoomed #stage.dragging { cursor: grabbing; }
 body:not(.loaded) #top { display: none; }
+.title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+button.home { pointer-events: auto; background: rgba(0,0,0,.35); border: 1px solid var(--line); }
+button.home:hover { background: rgba(255,255,255,.14); }
 .title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 3px #000; }
 .badges { display: flex; gap: 6px; }
 .badge { font: 600 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; padding: 5px 8px; border-radius: 6px; background: rgba(0,0,0,.45); border: 1px solid var(--line); color: var(--dim); letter-spacing: .02em; }
@@ -248,3 +251,26 @@ button.primary.sm { padding: 7px 12px; font-size: 13px; border-radius: 8px; }
   .pop { right: -40px; }
 }
 @media (pointer: coarse) { .hint { display: none; } }
+
+/* ---------- start screen: resume & recent ---------- */
+#empty { overflow-y: auto; }
+.resume { display: flex; align-items: center; gap: 14px; width: min(460px, 92vw); padding: 12px 16px; border-radius: 14px; cursor: pointer; text-align: left;
+  background: rgba(124,240,200,.08); border: 1px solid rgba(124,240,200,.35); color: var(--ink); transition: background .15s, transform .12s; }
+.resume:hover { background: rgba(124,240,200,.14); transform: translateY(-1px); }
+.resume > svg { width: 22px; height: 22px; color: var(--accent); }
+.resume span:not(.resume-time) { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.resume small { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+.resume b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.resume-time { font: 12px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); }
+#recent { width: min(520px, 92vw); margin-top: 6px; }
+.recent-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px 6px; }
+.recent-head h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; }
+button.link { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 12px; }
+button.link:hover { color: var(--ink); }
+#recentList { list-style: none; margin: 0; padding: 4px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.02); max-height: 230px; overflow-y: auto; }
+#recentList li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; text-align: left; }
+#recentList li:hover { background: rgba(255,255,255,.06); }
+#recentList .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#recentList .meta { color: var(--faint); font: 11px ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+#recentList svg { width: 16px; height: 16px; color: var(--dim); }
+@media (max-height: 700px) { #empty { justify-content: flex-start; padding-top: 40px; } .chips { display: none; } }

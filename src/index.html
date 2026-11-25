@@ -31,6 +31,7 @@
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M15 14v6l5-3z" fill="currentColor"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="7" r="1.4" fill="currentColor"/><circle cx="15" cy="7" r="1.4" fill="currentColor"/><circle cx="9" cy="12" r="1.4" fill="currentColor"/><circle cx="15" cy="12" r="1.4" fill="currentColor"/><circle cx="9" cy="17" r="1.4" fill="currentColor"/><circle cx="15" cy="17" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.2 12 4.5l8 6.7V19a1.5 1.5 0 0 1-1.5 1.5H15v-5.5H9v5.5H5.5A1.5 1.5 0 0 1 4 19z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
@@ -45,19 +46,31 @@
     <h1>Lumen<span>VR Player</span></h1>
   </div>
   <p class="lede">Any video — MP4, MKV, AVI, WMV and more — plus 3D, 180° and 360° VR, with real-time GPU upscaling and AI super-resolution.</p>
+  <button id="resumeBtn" class="resume" hidden>
+    <svg><use href="#i-play"/></svg>
+    <span><small>Continue watching</small><b id="resumeName"></b></span>
+    <span class="resume-time" id="resumeTime"></span>
+  </button>
   <div class="cta">
     <button id="openBtn" class="primary"><svg><use href="#i-open"/></svg>Open videos</button>
     <button id="serverBtn" class="ghost" hidden><svg><use href="#i-sphere"/></svg>Connect to server</button>
     <button id="emptyModelBtn" class="ghost"><svg><use href="#i-spark"/></svg>Load AI model</button>
   </div>
   <p class="hint">or drop a file anywhere · <kbd>O</kbd> open · <kbd>?</kbd> shortcuts</p>
+  <section id="recent" hidden>
+    <div class="recent-head"><h2>Recently played</h2><button id="recentClear" class="link">Clear</button></div>
+    <ul id="recentList"></ul>
+  </section>
   <ul class="chips">
     <li>2D</li><li>3D SBS / TB</li><li>360° mono / stereo</li><li>VR180</li><li>Fisheye 180</li><li>OpenXR headsets</li>
   </ul>
 </section>
 
 <header id="top">
-  <div class="title" id="title"></div>
+  <div class="title-wrap">
+    <button id="homeBtn" class="icon sm home" title="Home: choose another video (Backspace)"><svg><use href="#i-home"/></svg></button>
+    <div class="title" id="title"></div>
+  </div>
   <div class="badges">
     <span class="badge" id="fmtBadge"></span>
     <span class="badge accent" id="upBadge"></span>
@@ -238,7 +251,8 @@
       <dt><kbd>H</kbd> · <kbd>T</kbd></dt><dd>Shuffle · repeat (off → all → one)</dd>
       <dt><kbd>Q</kbd></dt><dd>Queue &amp; playlists</dd>
       <dt><kbd>F</kbd> / double-click</dt><dd>Fullscreen</dd>
-      <dt><kbd>O</kbd></dt><dd>Open video</dd>
+      <dt><kbd>O</kbd></dt><dd>Open videos</dd>
+      <dt><kbd>Backspace</kbd></dt><dd>Home: back to the start screen</dd>
       <dt><kbd>P</kbd></dt><dd>Cycle video format</dd>
       <dt><kbd>U</kbd></dt><dd>Cycle upscaling Off → GPU → AI</dd>
       <dt><kbd>C</kbd></dt><dd>A/B compare (drag the divider)</dd>

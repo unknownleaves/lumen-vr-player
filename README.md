@@ -193,6 +193,16 @@ test/unit.test.mjs Unit tests (npm test)
 
 The `src/` folder also runs in a plain browser for development: `npx serve .` and open `/src/index.html`. In a browser, files open through the file picker or drag-and-drop.
 
+## Troubleshooting playback
+
+Press **I** while a video plays to show the stats overlay. It lists the file's codecs, how it's being played (`direct`, `remux` or `transcode`, and the encoder used), and how many frames were dropped. The player also fixes common problems by itself:
+
+* **No picture** (the video's codec isn't supported by the graphics driver, e.g. some HEVC/Dolby Vision MP4s): it switches to conversion and continues from the same point.
+* **Dropped frames**: AI upscaling steps down to GPU upscaling, then GPU upscaling switches off for that video (press **U** to turn it back on).
+* **Conversion can't keep up**: it lowers the conversion resolution (1080p → 720p → 480p).
+
+Conversion uses the graphics card's video encoder when there is one (NVIDIA NVENC, Intel Quick Sync, AMD AMF, Apple VideoToolbox), otherwise the CPU.
+
 ## Known limitations
 
 * AI upscaling of high-resolution VR video (4K+) cannot run in real time on consumer hardware. Use it on paused frames, or use GPU mode.

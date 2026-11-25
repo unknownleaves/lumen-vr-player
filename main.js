@@ -24,11 +24,16 @@ const ISOLATION = {
 };
 
 // ---- Chromium feature switches -------------------------------------------------
-// WebXR through OpenXR (SteamVR, Meta Quest Link/Air Link, Windows Mixed Reality, Pico Connect…)
-app.commandLine.appendSwitch('enable-features', 'WebXR,OpenXR,Vulkan,VaapiVideoDecoder,VaapiVideoDecodeLinuxGL,PlatformHEVCDecoderSupport');
-// WebGPU powers the AI upscaler. It is on by default on Windows/macOS; Linux still needs this.
-app.commandLine.appendSwitch('enable-unsafe-webgpu');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
+// Keep Windows and macOS on Chromium's default, well-tested GPU and video paths. Forcing Vulkan or
+// ignoring the GPU blocklist there causes video corruption and stutter on many drivers.
+// WebXR through OpenXR: SteamVR, Meta Quest Link/Air Link, Windows Mixed Reality, Pico Connect…
+const features = ['WebXR', 'OpenXR', 'PlatformHEVCDecoderSupport'];
+if (process.platform === 'linux') {
+  // Linux: hardware video decoding (VA-API) and Vulkan for WebGPU (AI upscaler) are opt-in.
+  features.push('VaapiVideoDecoder', 'VaapiVideoDecodeLinuxGL', 'Vulkan');
+  app.commandLine.appendSwitch('enable-unsafe-webgpu');
+}
+app.commandLine.appendSwitch('enable-features', features.join(','));
 app.commandLine.appendSwitch('force_high_performance_gpu');
 
 protocol.registerSchemesAsPrivileged([
@@ -91,7 +96,7 @@ function handleProtocol() {
       const q = url.searchParams;
       let child;
       try {
-        child = media.stream(p, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '' });
+        child = media.stream(p, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
       } catch (e) {
         return new Response(e.message, { status: 500 });
       }

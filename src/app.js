@@ -60,13 +60,71 @@ XRPlayer.supported().then((ok) => {
 const cur = { item: null, info: null, url: '', offset: 0, streamed: false, duration: 0, retried: false, token: 0 };
 const curTime = () => cur.offset + (video.currentTime || 0);
 const totalTime = () => (cur.streamed ? cur.duration || 0 : (isFinite(video.duration) ? video.duration : cur.duration || 0));
-const withStart = (url, t) => url + (url.includes('?') ? '&' : '?') + 'start=' + t.toFixed(3);
+const withStart = (url, t) => url + (url.includes('?') ? '&' : '?') + 'start=' + t.toFixed(3) + (cur.maxWidth ? '&maxWidth=' + cur.maxWidth : '');
+
+function restartStream(t, play) {
+  cur.offset = t;
+  video.src = withStart(cur.url, t);
+  video.load();
+  resetHealth();
+  video.addEventListener('loadeddata', () => { newFrame = true; if (play) video.play().catch(() => {}); }, { once: true });
+  aiInvalidate();
+}
 
 function caps() {
   const ms = window.MediaSource;
   const ok = (t) => { try { return !!(ms && ms.isTypeSupported(t)) || video.canPlayType(t) === 'probably'; } catch { return false; } };
   return { hevc: ok('video/mp4; codecs="hvc1.1.6.L120.90"'), av1: ok('video/mp4; codecs="av01.0.08M.08"') };
 }
+
+// Playback health: catches files that "play" without a picture, conversions that can't keep up,
+// and upscaling that is too heavy for the GPU — and fixes them automatically.
+const health = { frames: 0, waits: [], lastDropped: 0, lastTotal: 0, badSeconds: 0, stepped: false, maxWidth: 0 };
+function resetHealth() {
+  Object.assign(health, { frames: 0, waits: [], badSeconds: 0, stepped: false });
+  const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null;
+  health.lastDropped = q ? q.droppedVideoFrames : 0;
+  health.lastTotal = q ? q.totalVideoFrames : 0;
+}
+
+function checkHealth() {
+  if (!cur.item || video.paused || video.seeking || video.readyState < 2) return;
+  // 1. Audio/time runs but no video frames arrive (e.g. an HEVC/Dolby Vision MP4 the GPU can't decode)
+  if (!cur.streamed && !cur.retried && video.currentTime > 2.5 && health.frames < 3 && 'requestVideoFrameCallback' in video) {
+    toast('This video’s format isn’t supported by your graphics driver — converting it…', 3500);
+    playItem(cur.item, { force: 'transcode', at: curTime() });
+    return;
+  }
+  // 2. Too many dropped frames → lighten the load
+  const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null;
+  if (q) {
+    const dd = q.droppedVideoFrames - health.lastDropped, dt = q.totalVideoFrames - health.lastTotal;
+    health.lastDropped = q.droppedVideoFrames; health.lastTotal = q.totalVideoFrames;
+    health.badSeconds = dt >= 10 && dd / dt > 0.15 ? health.badSeconds + 1 : 0;
+    if (health.badSeconds >= 4 && !health.stepped) {
+      health.stepped = true; health.badSeconds = 0;
+      if (S.upscale === 'ai') { setUpscale('gpu'); toast('AI upscaling was too slow for live playback — switched to GPU upscaling', 4500); }
+      else if (S.upscale === 'gpu') { S.upscale = 'off'; dirty = true; syncUI(); toast('Upscaling paused for this video: your graphics card couldn’t keep up (turn it back on with U)', 5000); }
+    }
+  }
+}
+setInterval(checkHealth, 1000);
+
+// 3. A conversion that keeps buffering → restart it at a lower resolution
+video.addEventListener('waiting', () => {
+  if (!cur.streamed || !cur.info || cur.info.mode !== 'transcode' || video.seeking) return;
+  const now = performance.now();
+  health.waits = health.waits.filter((t) => now - t < 30000).concat(now);
+  if (health.waits.length >= 3) {
+    health.waits = [];
+    const w = cur.maxWidth || (cur.info.encoder && cur.info.encoder !== 'libx264' ? 3840 : 1920);
+    const next = w > 1920 ? 1920 : w > 1280 ? 1280 : w > 854 ? 854 : 0;
+    if (!next) return;
+    cur.maxWidth = next;
+    toast(`Lowering conversion quality to ${Math.round(next * 9 / 16)}p so it plays smoothly`, 4000);
+    restartStream(curTime(), !video.paused);
+  }
+});
 
 /** Turn a queue item into something playable. */
 async function prepareItem(item, force) {
@@ -88,7 +146,7 @@ async function prepareItem(item, force) {
   return { url: item.url, streamed: false, mode: 'direct' };
 }
 
-async function playItem(item, { autoplay = true, force = null } = {}) {
+async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
   if (!item) return;
   const token = ++cur.token;
   fileName = item.name || 'video';
@@ -97,10 +155,13 @@ async function playItem(item, { autoplay = true, force = null } = {}) {
   const info = await prepareItem(item, force);
   if (token !== cur.token) return;                    // another item was chosen meanwhile
   if (!info || info.error || !info.url) { toast(info && info.error ? info.error : 'Could not open ' + fileName, 5000); return; }
-  Object.assign(cur, { item, info, url: info.url, offset: 0, streamed: !!info.streamed, duration: info.duration || 0, retried: !!force });
-  if (info.mode && info.mode !== 'direct') toast(info.mode === 'transcode' ? `Converting ${info.videoCodec || 'video'} for playback…` : 'Preparing ' + (info.reason || 'video') + '…', 2500);
-  video.src = cur.streamed ? withStart(cur.url, 0) : cur.url;
+  Object.assign(cur, { item, info, url: info.url, offset: 0, streamed: !!info.streamed, duration: info.duration || 0, retried: !!force, maxWidth: 0 });
+  if (info.mode && info.mode !== 'direct' && !force) toast(info.mode === 'transcode' ? `Converting ${info.videoCodec || 'video'} for playback…` : 'Preparing ' + (info.reason || 'video') + '…', 2500);
+  if (cur.streamed) cur.offset = at;
+  video.src = cur.streamed ? withStart(cur.url, at) : cur.url;
   video.load();
+  resetHealth();
+  if (!cur.streamed && at) video.addEventListener('loadedmetadata', () => { video.currentTime = at; }, { once: true });
   aiInvalidate();
   yaw = 0; pitch = 0;
   video.addEventListener('loadedmetadata', () => {
@@ -123,12 +184,7 @@ function seekTo(t) {
   for (let i = 0; i < video.buffered.length; i++) {
     if (rel >= video.buffered.start(i) && rel <= video.buffered.end(i) - 0.2) { video.currentTime = rel; return; }
   }
-  const wasPlaying = !video.paused;
-  cur.offset = t;
-  video.src = withStart(cur.url, t);
-  video.load();
-  video.addEventListener('loadeddata', () => { newFrame = true; if (wasPlaying) video.play().catch(() => {}); }, { once: true });
-  aiInvalidate();
+  restartStream(t, !video.paused);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -207,7 +263,7 @@ video.addEventListener('error', () => {
   // The browser refused the file: retry once through FFmpeg conversion when we can.
   if (!cur.retried && ((host && cur.item.path) || (server && cur.item.lib)) && (!cur.info || cur.info.ffmpeg !== false)) {
     toast('Converting this video for playback…', 2500);
-    playItem(cur.item, { force: 'transcode' });
+    playItem(cur.item, { force: 'transcode', at: curTime() });
     return;
   }
   toast(err && err.code === 4
@@ -235,7 +291,7 @@ window.addEventListener('drop', async (e) => {
 // Frame tracking
 function watchFrames() {
   if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
-  const cb = () => { newFrame = true; video.requestVideoFrameCallback(cb); };
+  const cb = () => { newFrame = true; health.frames++; video.requestVideoFrameCallback(cb); };
   video.requestVideoFrameCallback(cb);
 }
 watchFrames();
@@ -708,7 +764,8 @@ function renderStats() {
   const lines = [
     `source   ${video.videoWidth}×${video.videoHeight}  ${fmtLabel()}`,
     `output   ${o ? o.w + '×' + o.h : '-'}  (${S.upscale}${S.upscale !== 'off' ? ' ' + lastScale + '×' : ''})`,
-    `frames   ${stats.fps.toFixed(1)} fps decoded`,
+    `file     ${cur.info ? [cur.info.videoCodec, cur.info.audioCodec].filter(Boolean).join(' + ') || '?' : '-'}  ${cur.info && cur.info.mode ? cur.info.mode : ''}${cur.info && cur.info.encoder ? ' (' + cur.info.encoder + ')' : ''}${cur.maxWidth ? ' ≤' + cur.maxWidth + 'px' : ''}`,
+    `frames   ${stats.fps.toFixed(1)} fps decoded, ${video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality().droppedVideoFrames : 0} dropped`,
     `display  ${canvas.width}×${canvas.height}  fov ${S.fov}°`,
   ];
   if (ai.ready) lines.push(`ai       ${ai.modelName} ${ai.scale}× ${ai.backend}`, `ai frame ${(stats.aiMs / 1000).toFixed(2)} s / ${stats.aiTiles} tiles`);

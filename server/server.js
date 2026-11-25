@@ -155,7 +155,7 @@ async function handle(req, res) {
       const q = url.searchParams;
       let child;
       try {
-        child = media.stream(f, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '' });
+        child = media.stream(f, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
       } catch (e) { return json(res, 500, { error: e.message }); }
       res.writeHead(200, { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store', ...ISOLATION });
       child.stdout.pipe(res);

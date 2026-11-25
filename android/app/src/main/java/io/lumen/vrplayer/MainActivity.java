@@ -22,7 +22,6 @@ import android.webkit.JavascriptInterface;
 import android.webkit.SslErrorHandler;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -83,7 +82,8 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
         s.setSupportZoom(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // The bundled player (https) streams from a Lumen server on the home network, usually plain http.
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         assetLoader = new WebViewAssetLoader.Builder()
                 .setDomain(ASSET_HOST)
@@ -95,8 +95,9 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(chrome);
         web.addJavascriptInterface(new Bridge(), "LumenAndroid");
 
-        String server = prefs.getString("server", "");
-        web.loadUrl(server.isEmpty() ? LOCAL_URL : server);
+        // Always run the player bundled with this app; a connected server is only used for its library,
+        // conversion and playlists. That way the phone app's screens never depend on the server's version.
+        web.loadUrl(LOCAL_URL);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -166,16 +167,6 @@ public class MainActivity extends Activity {
             else handler.cancel();
         }
 
-        @Override
-        public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-            if (!request.isForMainFrame()) return;
-            String host = request.getUrl().getHost();
-            if (host != null && host.equals(serverHost())) {
-                // Server unreachable: fall back to the on-device player and say why.
-                String msg = String.valueOf(error.getDescription());
-                view.loadUrl(LOCAL_URL + "?serverError=" + Uri.encode(msg));
-            }
-        }
     }
 
     private class Chrome extends WebChromeClient {
@@ -321,7 +312,7 @@ public class MainActivity extends Activity {
         public void connectServer(String url) {
             if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) return;
             prefs.edit().putString("server", url).apply();
-            runOnUiThread(() -> web.loadUrl(url));
+            runOnUiThread(() -> web.loadUrl(LOCAL_URL));
         }
 
         @JavascriptInterface

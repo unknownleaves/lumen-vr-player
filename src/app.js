@@ -10,6 +10,14 @@ const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const host = window.lumen || null;            // Electron bridge (absent when opened in a plain browser)
 let server = null;                            // set when served by the Docker / NAS server edition
 const android = window.LumenAndroid || null;  // Android app bridge
+let API = '';                                 // base URL of the Lumen server API ('' = same origin)
+const apiUrl = (p) => (p && p.startsWith('/') ? API + p : p);
+function androidServerOrigin() {
+  if (!android) return '';
+  const saved = android.getServer();
+  if (!saved) return '';
+  try { return new URL(saved).origin; } catch { return ''; }
+}
 const video = $('video');
 const canvas = $('stage');
 
@@ -134,9 +142,11 @@ async function prepareItem(item, force) {
   if (item.path && host && host.prepare) return host.prepare(item.path, c);
   if (item.lib && server) {
     const q = new URLSearchParams({ path: item.lib, hevc: c.hevc ? '1' : '0', av1: c.av1 ? '1' : '0' });
-    const r = await fetch('/api/probe?' + q);
+    const r = await fetch(apiUrl('/api/probe?' + q));
     if (!r.ok) return { error: (await r.json().catch(() => ({}))).error || 'Could not open ' + item.name };
     const info = await r.json();
+    info.url = apiUrl(info.url);
+    info.fallbackUrl = apiUrl(info.fallbackUrl);
     if (force === 'transcode') return { ...info, url: info.fallbackUrl, streamed: true, mode: 'transcode' };
     return info;
   }
@@ -159,6 +169,8 @@ async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
   Object.assign(cur, { item, info, url: info.url, offset: 0, streamed: !!info.streamed, duration: info.duration || 0, retried: !!force, maxWidth: 0 });
   if (info.mode && info.mode !== 'direct' && !force) toast(info.mode === 'transcode' ? `Converting ${info.videoCodec || 'video'} for playback…` : 'Preparing ' + (info.reason || 'video') + '…', 2500);
   if (cur.streamed) cur.offset = at;
+  const crossOrigin = /^https?:/i.test(cur.url) && !cur.url.startsWith(location.origin);
+  if (crossOrigin) video.crossOrigin = 'anonymous'; else video.removeAttribute('crossorigin');
   video.src = cur.streamed ? withStart(cur.url, at) : cur.url;
   video.load();
   resetHealth();
@@ -629,7 +641,7 @@ $('modelFolder').hidden = !host;
 
 async function listModels() {
   if (host) return host.listModels();
-  if (server) { try { return await (await fetch('/api/models')).json(); } catch { return []; } }
+  if (server) { try { return (await (await fetch(apiUrl('/api/models'))).json()).map((m) => ({ ...m, url: apiUrl(m.url) })); } catch { return []; } }
   return [];
 }
 
@@ -795,6 +807,7 @@ $('helpBtn').onclick = () => { $('help').hidden = false; };
 $('helpClose').onclick = () => { $('help').hidden = true; };
 $('help').onclick = (e) => { if (e.target.id === 'help') $('help').hidden = true; };
 $('gearBtn').onclick = () => { $('panel').hidden = !$('panel').hidden; };
+$('homeGear').onclick = () => { $('panel').hidden = !$('panel').hidden; };
 $('panelClose').onclick = () => { $('panel').hidden = true; };
 
 // Transport
@@ -1010,7 +1023,7 @@ window.addEventListener('keydown', (e) => {
   const k = e.key;
   const handled = true;
   const onHome = !document.body.classList.contains('loaded');
-  if (onHome && !['o', 'O', '?', ' ', 'Escape', 'k', 'K'].includes(k)) return;
+  if (onHome && !['o', 'O', '?', ' ', 'Escape', 'k', 'K', 's', 'S'].includes(k)) return;
   switch (k) {
     case ' ': case 'k': case 'K': togglePlay(); break;
     case 'ArrowLeft': if (e.shiftKey && zoom > 1) panBy(60, 0); else seekBy(-5); break;
@@ -1165,12 +1178,12 @@ $('recentClear').onclick = () => { save('lumen.recent', []); renderHome(); };
 // Queue panel & saved playlists
 const PL = {
   async list() {
-    if (server) { try { return await (await fetch('/api/playlists', { cache: 'no-store' })).json(); } catch { return []; } }
+    if (server) { try { return await (await fetch(apiUrl('/api/playlists'), { cache: 'no-store' })).json(); } catch { return []; } }
     return load('lumen.playlists', []);
   },
   async saveAll(lists) {
     if (server) {
-      const r = await fetch('/api/playlists', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lists) });
+      const r = await fetch(apiUrl('/api/playlists'), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lists) });
       if (!r.ok) throw new Error('Could not save playlists on the server');
     } else save('lumen.playlists', lists);
   },
@@ -1349,7 +1362,7 @@ async function showFolder(path, query = '') {
   list.innerHTML = '<div class="empty">Loading…</div>';
   let data;
   try {
-    const r = await fetch(query ? '/api/library?q=' + encodeURIComponent(query) : '/api/library?path=' + encodeURIComponent(path));
+    const r = await fetch(apiUrl(query ? '/api/library?q=' + encodeURIComponent(query) : '/api/library?path=' + encodeURIComponent(path)));
     if (!r.ok) throw new Error(r.status);
     data = await r.json();
   } catch {
@@ -1433,7 +1446,7 @@ if (android) {
     if (!addr) return;
     if (!/^https?:\/\//i.test(addr)) addr = 'http://' + addr;
     if (!/:\d+(\/|$)/.test(addr.replace(/^https?:\/\//, ''))) addr = addr.replace(/\/$/, '') + (addr.startsWith('https') ? ':8445' : ':8095');
-    const url = addr.replace(/\/+$/, '') + '/src/index.html';
+    const url = addr.replace(/\/+$/, '');
     $('serverMsg').textContent = 'Connecting…';
     save('lumen.lastServer', $('serverAddr').value.trim());
     android.connectServer(url);
@@ -1445,26 +1458,42 @@ if (android) {
 
 async function detectServer() {
   if (host) return;
+  API = androidServerOrigin();
+  const hostName = API ? new URL(API).hostname : location.hostname;
   try {
-    const r = await fetch('/api/info', { cache: 'no-store' });
+    const r = await fetch(apiUrl('/api/info'), { cache: 'no-store' });
+    if (r.status === 401 && API) throw Object.assign(new Error('password'), { code: 'password' });
     const info = r.ok ? await r.json() : null;
-    if (!info || !info.server) return;
+    if (!info || !info.server) { if (API) throw new Error('not a Lumen server'); return; }
     server = info;
     $('openBtn').lastChild.textContent = 'Browse library';
     $('modelFolder').hidden = true;
-    const insecure = location.protocol === 'http:' && info.https;
+    const insecure = !android && location.protocol === 'http:' && info.https;
     $('libHint').textContent = insecure
       ? `For VR headsets use https://${location.hostname}:${info.https}`
       : `Lumen server ${info.version}`;
     if (insecure && $('vrBtn').disabled) $('vrBtn').title = `VR needs the secure address: https://${location.hostname}:${info.https}`;
     if (android) {
-      const note = $('serverNote');
-      note.hidden = false;
-      note.innerHTML = `Using your server <b>${esc(location.hostname)}</b> · <button id="usePhone">Use this phone's videos instead</button>`;
-      $('usePhone').onclick = () => android.disconnectServer();
+      showServerNote(`Using your server <b>${esc(hostName)}</b> · <button id="usePhone">Use this phone's videos instead</button>`);
+      $('serverStatus').textContent = `Connected to ${hostName} (server ${info.version})`;
     }
     refreshModelList();
-  } catch { /* plain static hosting */ }
+    renderHome();
+  } catch (e) {
+    if (!API) return;   // plain static hosting, nothing to do
+    let why = `Can't connect to your server <b>${esc(hostName)}</b>. Check that it's on and that this phone is on the same Wi-Fi. If it is, update Lumen VR Player on ZimaOS (this app needs server version 1.4.2 or newer).`;
+    if (e.code === 'password') why = `Your server <b>${esc(hostName)}</b> has a password, which the phone app doesn't support yet. Remove LUMEN_PASSWORD on the server, or use the phone's own videos.`;
+    else if (e.message === 'not a Lumen server') why = `<b>${esc(hostName)}</b> answered, but it isn't a Lumen server, or it's an old version. Check the address and port (usually 8095), or update Lumen VR Player on ZimaOS.`;
+    showServerNote(`${why} <button id="serverRetry">Try again</button> · <button id="usePhone">Use this phone's videos</button>`);
+    $('serverRetry').onclick = () => { $('serverNote').innerHTML = 'Connecting…'; detectServer(); };
+  }
+}
+function showServerNote(html) {
+  const note = $('serverNote');
+  note.hidden = false;
+  note.innerHTML = html;
+  const b = $('usePhone');
+  if (b) b.onclick = () => android.disconnectServer();
 }
 detectServer();
 

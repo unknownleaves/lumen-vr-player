@@ -43,10 +43,14 @@ function readBody(req, limit = 2e6) {
   });
 }
 
+// Headers on every response. CORS lets the Android app (which runs its own bundled player) read the
+// library, playlists and video frames from this server.
 const ISOLATION = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
-  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'cross-origin',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length, Content-Type',
 };
 
 function authorized(req) {
@@ -120,6 +124,16 @@ async function search(q, limit = 200) {
 
 async function handle(req, res) {
   try {
+    if (req.method === 'OPTIONS') {   // CORS preflight (Android app → server on the home network)
+      res.writeHead(204, {
+        ...ISOLATION,
+        'Access-Control-Allow-Methods': 'GET, HEAD, PUT, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Content-Type, Authorization',
+        'Access-Control-Allow-Private-Network': 'true',
+        'Access-Control-Max-Age': '600',
+      });
+      return res.end();
+    }
     if (!authorized(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Lumen VR Player", charset="UTF-8"' });
       return res.end('Password required');

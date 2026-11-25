@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' app: blob: data:; script-src 'self' app: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' app: blob:; connect-src 'self' app: blob: data: https://api.github.com; worker-src 'self' app: blob:; img-src 'self' app: blob: data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' app: blob: data:; script-src 'self' app: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' app: blob: http: https:; connect-src 'self' app: blob: data: http: https:; worker-src 'self' app: blob:; img-src 'self' app: blob: data:">
 <title>Lumen VR Player</title>
 <link rel="icon" href="assets/icon.png">
 <link rel="stylesheet" href="styles.css">
@@ -53,6 +53,7 @@
 <div id="compareLabels" hidden><span>Original</span><span>Enhanced</span></div>
 
 <section id="empty">
+  <button id="homeGear" class="icon home-gear" title="Settings (S)"><svg><use href="#i-gear"/></svg></button>
   <div class="brand">
     <img class="mark" src="assets/icon.png" alt="">
     <h1>Lumen<span>VR Player</span></h1>

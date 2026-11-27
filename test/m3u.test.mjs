@@ -69,3 +69,14 @@ assert.ok(looksLikeList('x.xspf') && looksLikeList('x.ASX') && looksLikeList('ht
 assert.ok(isDashUrl('https://a/manifest.mpd'));
 assert.ok(isStreamUrl('rtmpt://a/b') && isStreamUrl('mms://a/b') && isStreamUrl('srt://1.2.3.4:9000') && !isStreamUrl('ftp://a'));
 console.log('playlist formats: all checks passed');
+
+import { directListUrl, isVideoSitePage } from '../src/m3u.js';
+assert.equal(directListUrl('https://github.com/Free-TV/IPTV/blob/master/playlists/playlist_japan.m3u8'), 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_japan.m3u8');
+assert.equal(directListUrl('https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8'), 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8');
+assert.equal(directListUrl('https://gitlab.com/a/b/-/blob/main/x.m3u'), 'https://gitlab.com/a/b/-/raw/main/x.m3u');
+assert.ok(isVideoSitePage('https://www.youtube.com/@EuronewsAlbania/live') && !isVideoSitePage('https://x.example/live.m3u8'));
+console.log('link helpers: all checks passed');
+
+const withPlaceholders = parseM3U('#EXTM3U\n#EXTINF:-1,Real\nhttps://a/1.m3u8\n#EXTINF:-1,Gone\n[NO PUBLIC STREAM]\n#EXTINF:-1,Next\nhttps://a/2.m3u8\n', 'https://lists.example/x.m3u8');
+assert.deepEqual(withPlaceholders.map((x) => x.name), ['Real', 'Next']);
+console.log('placeholders: all checks passed');

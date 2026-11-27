@@ -1,7 +1,7 @@
 {
   "name": "lumen-vr-player",
   "productName": "Lumen VR Player",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Cross-platform 2D/3D/180\u00b0/360\u00b0 VR video player with real-time GPU upscaling and AI super-resolution.",
   "main": "main.js",
   "author": "Lumen VR Player contributors",

@@ -64,6 +64,8 @@ export function parseM3U(text, baseUrl = '') {
     }
     if (line.startsWith('#EXTGRP:')) { groupFromExtgrp = line.slice(8).trim(); continue; }
     if (line.startsWith('#')) continue;   // other tags (#EXTM3U, #EXTVLCOPT, …)
+    // Placeholders such as "[NO PUBLIC STREAM]" or free text are not links: skip the entry.
+    if (/^\[.*\]$/.test(line) || (!isAbsolute(line) && /\s/.test(line))) { pending = null; groupFromExtgrp = ''; continue; }
     const url = resolve(line, baseUrl);
     const it = pending || { name: '', group: '', logo: '', duration: 0 };
     if (!it.group && groupFromExtgrp) it.group = groupFromExtgrp;
@@ -146,3 +148,17 @@ export function parsePlaylist(text, baseUrl = '') {
   if (head.startsWith('<asx') || head.includes('<asx')) return parseASX(text, baseUrl);
   return parseM3U(text, baseUrl);
 }
+
+/** Links people copy from a browser → the file behind them (GitHub / GitLab "blob" pages, Dropbox shares). */
+export function directListUrl(u) {
+  const s = String(u || '').trim();
+  let m = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/i.exec(s);
+  if (m) return `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3].replace(/[?#].*$/, '')}`;
+  m = /^https?:\/\/gitlab\.com\/(.+?)\/-\/blob\/(.+)$/i.exec(s);
+  if (m) return `https://gitlab.com/${m[1]}/-/raw/${m[2].replace(/[?#].*$/, '')}`;
+  if (/^https?:\/\/(www\.)?dropbox\.com\//i.test(s)) return s.replace(/([?&])dl=0/, '$1dl=1') + (/[?&]dl=/.test(s) ? '' : (s.includes('?') ? '&' : '?') + 'dl=1');
+  return s;
+}
+
+/** Web pages of video sites (not streams): they need site-specific tools no player engine has. */
+export const isVideoSitePage = (u) => /^https?:\/\/(www\.|m\.)?(youtube\.com|youtu\.be|twitch\.tv|facebook\.com|tiktok\.com|dailymotion\.com)\//i.test(String(u || ''));

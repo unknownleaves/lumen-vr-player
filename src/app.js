@@ -3,7 +3,7 @@ import { XRPlayer } from './xr.js';
 import { AIUpscaler } from './ai.js';
 import { detectFormat, eyeAspect } from './detect.js';
 import { Queue } from './queue.js';
-import { parsePlaylist, isHlsPlaylist, groupsOf, looksLikeM3U, looksLikeList, isDashUrl, isStreamUrl } from './m3u.js';
+import { parsePlaylist, isHlsPlaylist, groupsOf, looksLikeM3U, looksLikeList, isDashUrl, isStreamUrl, directListUrl, isVideoSitePage } from './m3u.js';
 import { perspective, multiply, invert, rotX, rotY } from './math.js';
 
 const $ = (id) => document.getElementById(id);
@@ -164,6 +164,7 @@ async function prepareItem(item, force) {
 
 /** Live / network streams: desktop and server read them with FFmpeg; the Android app relays them itself. */
 async function prepareStream(url, c, force) {
+  if (isVideoSitePage(url)) return { error: 'This channel is a YouTube (or similar) web page, not a video stream, so it can’t be played here.' };
   if (host && host.prepare) return host.prepare(url, c);
   if (server) {
     const q = new URLSearchParams({ u: url, hevc: c.hevc ? '1' : '0', av1: c.av1 ? '1' : '0' });
@@ -1725,6 +1726,7 @@ $('streamSave').onclick = async () => {
   let u = $('streamUrl').value.trim();
   if (!u) return toast('Paste a link first');
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'http://' + u;
+  u = directListUrl(u);
   if (!isStreamUrl(u)) return toast('That doesn’t look like a stream link', 3500);
   const name = $('streamName').value.trim() || streamName(u);
   savedLinksCache = await LINKS.list();
@@ -1750,6 +1752,7 @@ $('streamGo').onclick = async () => {
   let u = $('streamUrl').value.trim();
   if (!u) return;
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'http://' + u;
+  u = directListUrl(u);   // e.g. a GitHub page → the raw list file
   if (!isStreamUrl(u)) return toast('That doesn’t look like a stream link (http, https, rtsp, rtmp, mms, udp, rtp, srt, rist, tcp)', 4500);
   save('lumen.streamLinks', [u, ...load('lumen.streamLinks', []).filter((x) => x !== u)].slice(0, 10));
   $('streamDlg').hidden = true;

@@ -41,3 +41,31 @@ assert.equal(isHlsPlaylist('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nlow.m3u
 assert.ok(looksLikeM3U('list.m3u') && looksLikeM3U('http://x/a.m3u8?token=1') && !looksLikeM3U('a.mp4'));
 assert.ok(isStreamUrl('https://x') && isStreamUrl('rtsp://cam') && !isStreamUrl('/media/a.mp4'));
 console.log('m3u: all checks passed');
+
+// ---- other playlist formats
+import { parsePlaylist, looksLikeList, isDashUrl } from '../src/m3u.js';
+const pls = `[playlist]
+NumberOfEntries=2
+File1=http://radio.example:8000/stream
+Title1=Jazz Radio
+File2=relative/b.mp3
+Version=2`;
+let r = parsePlaylist(pls, 'http://lists.example/x/list.pls');
+assert.deepEqual(r.map((x) => [x.name, x.url]), [['Jazz Radio', 'http://radio.example:8000/stream'], ['b.mp3', 'http://lists.example/x/relative/b.mp3']]);
+const xspf = `<?xml version="1.0" encoding="UTF-8"?>
+<playlist xmlns="http://xspf.org/ns/0/" version="1"><trackList>
+<track><location>https://tv.example/ch1.m3u8</location><title>Channel &amp; One</title></track>
+<track><title>No location</title></track>
+<track><location><![CDATA[rtsp://cam.local/live]]></location></track>
+</trackList></playlist>`;
+r = parsePlaylist(xspf);
+assert.deepEqual(r.map((x) => [x.name, x.url]), [['Channel & One', 'https://tv.example/ch1.m3u8'], ['live', 'rtsp://cam.local/live']]);
+const asx = `<ASX version="3.0"><Entry><Title>Old Station</Title><Ref href="mms://media.example/live" /></Entry>
+<entry><ref href="http://media.example/b.wmv"/></entry></ASX>`;
+r = parsePlaylist(asx);
+assert.deepEqual(r.map((x) => [x.name, x.url]), [['Old Station', 'mms://media.example/live'], ['b.wmv', 'http://media.example/b.wmv']]);
+assert.equal(parsePlaylist('#EXTM3U\n#EXTINF:-1,A\nhttp://a/1.ts').length, 1);
+assert.ok(looksLikeList('x.xspf') && looksLikeList('x.ASX') && looksLikeList('http://a/b.pls?x') && !looksLikeList('a.mpd'));
+assert.ok(isDashUrl('https://a/manifest.mpd'));
+assert.ok(isStreamUrl('rtmpt://a/b') && isStreamUrl('mms://a/b') && isStreamUrl('srt://1.2.3.4:9000') && !isStreamUrl('ftp://a'));
+console.log('playlist formats: all checks passed');

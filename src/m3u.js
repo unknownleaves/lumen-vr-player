@@ -84,4 +84,65 @@ export function groupsOf(items) {
 }
 
 export const looksLikeM3U = (name) => /\.m3u8?(\?|#|$)/i.test(String(name || ''));
-export const isStreamUrl = (u) => /^(https?|rtsps?|rtmps?|udp|srt|rtp):\/\//i.test(String(u || ''));
+/** Any playlist file the app can open as a list: M3U/M3U8, PLS (Shoutcast), XSPF, ASX/WAX/WVX (Windows Media). */
+export const looksLikeList = (name) => /\.(m3u8?|pls|xspf|asx|wax|wvx)(\?|#|$)/i.test(String(name || ''));
+export const isDashUrl = (u) => /\.mpd(\?|#|$)/i.test(String(u || ''));
+/** Stream links FFmpeg can open: HTTP(S) (HLS, DASH, MPEG-TS, Icecast…), RTSP, RTMP(S/T/TS), MMS, UDP/RTP/SRT/RIST, TCP. */
+export const STREAM_SCHEMES = ['http', 'https', 'rtsp', 'rtsps', 'rtmp', 'rtmps', 'rtmpt', 'rtmpts', 'mms', 'mmsh', 'mmst', 'udp', 'udplite', 'rtp', 'srtp', 'srt', 'rist', 'tcp'];
+const STREAM_RE = new RegExp('^(' + STREAM_SCHEMES.join('|') + '):\\/\\/', 'i');
+export const isStreamUrl = (u) => STREAM_RE.test(String(u || ''));
+
+// ---- Other playlist formats -------------------------------------------------------------------
+/** PLS (Shoutcast / Winamp): File1=…, Title1=… */
+export function parsePLS(text, baseUrl = '') {
+  const files = {}, titles = {};
+  for (const raw of String(text).split(/\r?\n/)) {
+    const m = /^\s*(File|Title)(\d+)\s*=\s*(.*)$/i.exec(raw);
+    if (!m) continue;
+    (m[1].toLowerCase() === 'file' ? files : titles)[m[2]] = m[3].trim();
+  }
+  return Object.keys(files).sort((a, b) => a - b).map((k) => ({
+    name: titles[k] || nameFromUrl(files[k]), url: resolve(files[k], baseUrl), group: '', logo: '', duration: 0,
+  }));
+}
+
+const xmlText = (s) => String(s).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').trim();
+
+/** XSPF (VLC and others): <track><location>…</location><title>…</title></track> */
+export function parseXSPF(text, baseUrl = '') {
+  const out = [];
+  const re = /<track\b[^>]*>([\s\S]*?)<\/track>/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const loc = /<location>([\s\S]*?)<\/location>/i.exec(m[1]);
+    if (!loc) continue;
+    const title = /<title>([\s\S]*?)<\/title>/i.exec(m[1]);
+    const url = resolve(xmlText(loc[1]), baseUrl);
+    out.push({ name: title ? xmlText(title[1]) : nameFromUrl(url), url, group: '', logo: '', duration: 0 });
+  }
+  return out;
+}
+
+/** ASX / WAX / WVX (Windows Media): <entry><title/><ref href="…"/></entry> */
+export function parseASX(text, baseUrl = '') {
+  const out = [];
+  const re = /<entry\b[^>]*>([\s\S]*?)<\/entry>/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const ref = /<ref\b[^>]*href\s*=\s*"([^"]+)"/i.exec(m[1]);
+    if (!ref) continue;
+    const title = /<title>([\s\S]*?)<\/title>/i.exec(m[1]);
+    const url = resolve(xmlText(ref[1]), baseUrl);
+    out.push({ name: title ? xmlText(title[1]) : nameFromUrl(url), url, group: '', logo: '', duration: 0 });
+  }
+  return out;
+}
+
+/** Detect the list format from its content and parse it. */
+export function parsePlaylist(text, baseUrl = '') {
+  const head = String(text || '').replace(/^\uFEFF/, '').trimStart().slice(0, 400).toLowerCase();
+  if (head.startsWith('[playlist]') || /^file1\s*=/m.test(head)) return parsePLS(text, baseUrl);
+  if (head.includes('<playlist') && head.includes('xspf')) return parseXSPF(text, baseUrl);
+  if (head.startsWith('<asx') || head.includes('<asx')) return parseASX(text, baseUrl);
+  return parseM3U(text, baseUrl);
+}

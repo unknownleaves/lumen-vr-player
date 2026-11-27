@@ -3,7 +3,7 @@ import { XRPlayer } from './xr.js';
 import { AIUpscaler } from './ai.js';
 import { detectFormat, eyeAspect } from './detect.js';
 import { Queue } from './queue.js';
-import { parseM3U, isHlsPlaylist, groupsOf, looksLikeM3U, isStreamUrl } from './m3u.js';
+import { parsePlaylist, isHlsPlaylist, groupsOf, looksLikeM3U, looksLikeList, isDashUrl, isStreamUrl } from './m3u.js';
 import { perspective, multiply, invert, rotX, rotY } from './math.js';
 
 const $ = (id) => document.getElementById(id);
@@ -176,6 +176,8 @@ async function prepareStream(url, c, force) {
     return info;
   }
   if (android) {
+    if (!/^https?:/i.test(url)) return { error: 'RTSP, RTMP, MMS, UDP, SRT and RIST streams play through your Lumen server. Connect to it first (Settings → Server).' };
+    if (isDashUrl(url)) return { error: 'DASH (.mpd) streams play through your Lumen server. Connect to it first (Settings → Server).' };
     // The app's relay fetches the stream and rewrites HLS playlists so every segment stays same-origin.
     const hls = looksLikeM3U(url);
     return { url: `/proxy/${hls ? 'live.m3u8' : 'media'}?url=${encodeURIComponent(url)}`, streamed: false, mode: 'direct', live: hls, native: true };
@@ -223,7 +225,7 @@ async function openM3U(item) {
     return true;
   }
   if (isHlsPlaylist(res.text)) return false;            // a single stream: play it
-  let items = parseM3U(res.text, res.base);
+  let items = parsePlaylist(res.text, res.base);
   // Entries relative to a local list file → files next to it.
   items = (await Promise.all(items.map(async (it) => {
     if (isStreamUrl(it.url)) return { name: it.name, url: it.url, group: it.group, logo: it.logo };
@@ -236,13 +238,13 @@ async function openM3U(item) {
     return null;                                          // relative entry we can't resolve here
   }))).filter(Boolean);
   if (!items.length) { toast('No playable entries found in ' + item.name, 5000); return true; }
-  openChannels(items, item.name.replace(/\.m3u8?$/i, ''));
+  openChannels(items, item.name.replace(/\.(m3u8?|pls|xspf|asx|wax|wvx)$/i, ''));
   return true;
 }
 
 async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
   if (!item) return;
-  if (!item.hls && !force && looksLikeM3U(item.path || item.lib || item.url || item.name)) {
+  if (!item.hls && !force && looksLikeList(item.path || item.lib || item.url || item.name)) {
     const isList = await openM3U(item);
     if (isList) {
       const i = queue.items.indexOf(item);
@@ -1318,21 +1320,26 @@ $('recentClear').onclick = () => { save('lumen.recent', []); renderHome(); };
 
 // ------------------------------------------------------------------------------------------------
 // Queue panel & saved playlists
-const PL = {
-  async list() {
-    if (server) { try { return await (await fetch(apiUrl('/api/playlists'), { cache: 'no-store' })).json(); } catch { return []; } }
-    return load('lumen.playlists', []);
-  },
-  async saveAll(lists) {
-    if (server && android && API) {
-      const code = android.serverSend('PUT', '/api/playlists', JSON.stringify(lists));
-      if (code < 200 || code >= 300) throw new Error('Could not save playlists on the server');
-    } else if (server) {
-      const r = await fetch(apiUrl('/api/playlists'), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lists) });
-      if (!r.ok) throw new Error('Could not save playlists on the server');
-    } else save('lumen.playlists', lists);
-  },
-};
+/** A list kept on the server (shared by every device) when connected, otherwise on this device. */
+function makeStore(apiPath, localKey, what) {
+  return {
+    async list() {
+      if (server) { try { return await (await fetch(apiUrl(apiPath), { cache: 'no-store' })).json(); } catch { return []; } }
+      return load(localKey, []);
+    },
+    async saveAll(lists) {
+      if (server && android && API) {
+        const code = android.serverSend('PUT', apiPath, JSON.stringify(lists));
+        if (code < 200 || code >= 300) throw new Error(`Could not save ${what} on the server`);
+      } else if (server) {
+        const r = await fetch(apiUrl(apiPath), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lists) });
+        if (!r.ok) throw new Error(`Could not save ${what} on the server`);
+      } else save(localKey, lists);
+    },
+  };
+}
+const PL = makeStore('/api/playlists', 'lumen.playlists', 'playlists');
+const LINKS = makeStore('/api/links', 'lumen.savedLinks', 'links');
 
 function syncPlaylistButtons() {
   $('shuffleBtn').classList.toggle('on', queue.shuffle);
@@ -1648,21 +1655,84 @@ function renderChannels(query = '') {
 }
 
 // ---- "Open stream link" dialog
+let savedLinksCache = [];
+const savedName = (u) => (savedLinksCache.find((l) => l.url === u) || {}).name || '';
+
 function openStreamDialog() {
   $('streamDlg').hidden = false;
+  $('streamName').value = '';
+  renderLinks();
+  setTimeout(() => $('streamUrl').focus(), 50);
+}
+
+async function renderLinks() {
+  savedLinksCache = await LINKS.list();
+  // Saved links: open, rename, delete
+  const sul = $('savedLinks');
+  sul.innerHTML = '';
+  $('savedEmpty').hidden = !!savedLinksCache.length;
+  savedLinksCache.forEach((l, i) => {
+    const li = document.createElement('li');
+    li.className = 'link-row';
+    li.innerHTML = `<div class="link-main"><b>${esc(l.name)}</b><small>${esc(l.url)}</small></div>
+      <button class="act" data-a="open">Open</button><button class="act" data-a="ren">Rename</button><button class="act" data-a="del">Delete</button>`;
+    li.onclick = async (e) => {
+      const a = e.target.dataset.a;
+      if (a === 'del') {
+        if (e.target.textContent !== 'Sure?') { e.target.textContent = 'Sure?'; setTimeout(() => { e.target.textContent = 'Delete'; }, 2500); return; }
+        savedLinksCache.splice(i, 1);
+        await saveLinks(`Deleted “${l.name}”`);
+      } else if (a === 'ren') {
+        const main = li.querySelector('.link-main b');
+        const input = Object.assign(document.createElement('input'), { type: 'text', value: l.name, className: 'q-input' });
+        main.replaceWith(input); input.focus(); input.select();
+        const done = async (ok) => { if (ok && input.value.trim() && input.value.trim() !== l.name) { l.name = input.value.trim(); await saveLinks('Renamed'); } else renderLinks(); };
+        input.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') done(true); if (ev.key === 'Escape') done(false); };
+        input.onblur = () => done(true);
+      } else if (a === 'open' || (!a && !e.target.closest('input'))) {
+        $('streamUrl').value = l.url; $('streamName').value = l.name; $('streamGo').click();
+      }
+    };
+    sul.append(li);
+  });
+  // Recent links: save, remove
   const recent = load('lumen.streamLinks', []);
   $('streamRecentWrap').hidden = !recent.length;
   const ul = $('streamRecent');
   ul.innerHTML = '';
-  for (const u of recent) {
+  recent.forEach((u) => {
     const li = document.createElement('li');
-    li.textContent = u;
-    li.title = u;
-    li.onclick = () => { $('streamUrl').value = u; $('streamGo').click(); };
+    li.className = 'link-row';
+    const isSaved = savedLinksCache.some((l) => l.url === u);
+    li.innerHTML = `<div class="link-main"><small title="${esc(u)}">${esc(u)}</small></div>
+      ${isSaved ? '<span class="saved-tag">saved</span>' : '<button class="act" data-a="save">Save</button>'}<button class="act" data-a="rm" title="Remove from recent">✕</button>`;
+    li.onclick = async (e) => {
+      const a = e.target.dataset.a;
+      if (a === 'rm') { save('lumen.streamLinks', load('lumen.streamLinks', []).filter((x) => x !== u)); renderLinks(); return; }
+      if (a === 'save') { $('streamUrl').value = u; $('streamName').focus(); toast('Type a name, then press Save link'); return; }
+      $('streamUrl').value = u; $('streamGo').click();
+    };
     ul.append(li);
-  }
-  setTimeout(() => $('streamUrl').focus(), 50);
+  });
 }
+
+async function saveLinks(msg) {
+  try { await LINKS.saveAll(savedLinksCache); if (msg) toast(msg); } catch (e) { toast(e.message, 4000); }
+  renderLinks();
+}
+
+$('streamSave').onclick = async () => {
+  let u = $('streamUrl').value.trim();
+  if (!u) return toast('Paste a link first');
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'http://' + u;
+  if (!isStreamUrl(u)) return toast('That doesn’t look like a stream link', 3500);
+  const name = $('streamName').value.trim() || streamName(u);
+  savedLinksCache = await LINKS.list();
+  const existing = savedLinksCache.find((l) => l.url === u);
+  if (existing) existing.name = name; else savedLinksCache.unshift({ name, url: u, added: Date.now() });
+  $('streamName').value = '';
+  await saveLinks(`Saved “${name}”`);
+};
 function streamName(u) {
   try {
     const x = new URL(u);
@@ -1675,23 +1745,23 @@ $('streamClose').onclick = () => { $('streamDlg').hidden = true; };
 $('streamDlg').onclick = (e) => { if (e.target.id === 'streamDlg') $('streamDlg').hidden = true; };
 $('streamFile').onclick = () => { $('streamDlg').hidden = true; $('fileInput').click(); };
 $('streamUrl').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $('streamGo').click(); });
+$('streamName').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $('streamSave').click(); });
 $('streamGo').onclick = async () => {
   let u = $('streamUrl').value.trim();
   if (!u) return;
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'http://' + u;
-  if (!isStreamUrl(u)) return toast('That doesn’t look like a stream link (http, https, rtsp, rtmp, udp, srt)', 4000);
+  if (!isStreamUrl(u)) return toast('That doesn’t look like a stream link (http, https, rtsp, rtmp, mms, udp, rtp, srt, rist, tcp)', 4500);
   save('lumen.streamLinks', [u, ...load('lumen.streamLinks', []).filter((x) => x !== u)].slice(0, 10));
   $('streamDlg').hidden = true;
-  const item = { name: streamName(u), url: u };
+  const item = { name: $('streamName').value.trim() || savedName(u) || streamName(u), url: u };
   // IPTV list links often have no .m3u ending (e.g. get.php?…&type=m3u_plus): peek at the content first.
-  const mediaExt = /\.(mp4|m4v|mkv|webm|mov|ts|m2ts|mpg|mpeg|flv|avi|wmv|mp3|aac)(\?|$)/i.test(u);
-  if (/^https?:/i.test(u) && !mediaExt && !looksLikeM3U(u)) {
+  const mediaExt = /\.(mp4|m4v|mkv|webm|mov|ts|m2ts|mpg|mpeg|flv|avi|wmv|mp3|aac|mpd)(\?|$)/i.test(u);
+  if (/^https?:/i.test(u) && !mediaExt && !looksLikeList(u)) {
     try {
       const res = await fetchListText(item);
-      if (/^\s*#EXTM3U/i.test(res.text) && !isHlsPlaylist(res.text)) {
-        item.name = streamName(u).replace(/\.m3u8?$/i, '') || 'Channels';
-        const items = parseM3U(res.text, res.base).filter((it) => isStreamUrl(it.url)).map((it) => ({ name: it.name, url: it.url, group: it.group }));
-        if (items.length) { openChannels(items, item.name); return; }
+      if (!isHlsPlaylist(res.text)) {
+        const items = parsePlaylist(res.text, res.base).filter((it) => isStreamUrl(it.url)).map((it) => ({ name: it.name, url: it.url, group: it.group }));
+        if (items.length) { openChannels(items, $('streamName').value.trim() || streamName(u).replace(/\.(m3u8?|pls|xspf|asx)$/i, '') || 'Channels'); return; }
       }
     } catch { /* not a list: play it as a stream */ }
   }

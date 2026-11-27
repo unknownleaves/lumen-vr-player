@@ -305,3 +305,13 @@ body.live #backBtn, body.live #fwdBtn { display: none; }
 body.live .time #cur { color: #ff6b6b; font-weight: 700; letter-spacing: .04em; }
 #libList .grp { color: var(--faint); font: 11px ui-monospace, Menlo, Consolas, monospace; }
 body.live .time .sep, body.live .time #dur { display: none; }
+
+.mini-list.links { max-height: 190px; }
+.mini-list.links li.link-row { display: flex; align-items: center; gap: 6px; white-space: normal; }
+.link-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.link-main b { color: var(--ink); font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-main small { color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-row .act { border: 0; background: transparent; color: var(--faint); cursor: pointer; border-radius: 6px; padding: 4px 7px; font-size: 12px; flex: none; }
+.link-row .act:hover { color: var(--ink); background: rgba(255,255,255,.08); }
+.saved-tag { font: 600 10px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--accent); border: 1px solid rgba(124,240,200,.3); border-radius: 5px; padding: 3px 5px; }
+#streamDlg .help-card { max-height: 92vh; overflow-y: auto; }

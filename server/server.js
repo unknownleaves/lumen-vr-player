@@ -30,8 +30,9 @@ const HTTPS_PORT = +(process.env.HTTPS_PORT ?? 8443);
 const PASSWORD = process.env.LUMEN_PASSWORD || '';
 const VERSION = require('../package.json').version;
 const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.ogv', '.avi', '.wmv', '.flv', '.ts', '.m2ts', '.mts',
-  '.mpg', '.mpeg', '.vob', '.3gp', '.divx', '.asf', '.f4v', '.rm', '.rmvb', '.m3u', '.m3u8']);
+  '.mpg', '.mpeg', '.vob', '.3gp', '.divx', '.asf', '.f4v', '.rm', '.rmvb', '.m3u', '.m3u8', '.pls', '.xspf', '.asx', '.wax', '.wvx']);
 const PLAYLISTS_FILE = () => path.join(CONFIG_DIR, 'playlists.json');
+const STORE_FILES = { '/api/playlists': 'playlists.json', '/api/links': 'links.json' };   // shared between all devices
 const encPath = (rel) => rel.split('/').map(encodeURIComponent).join('/');
 
 function readBody(req, limit = 2e6) {
@@ -211,18 +212,19 @@ async function handle(req, res) {
       res.on('close', stop);
       return;
     }
-    if (p === '/api/playlists') {
+    if (STORE_FILES[p]) {
+      const file = path.join(CONFIG_DIR, STORE_FILES[p]);
       if (req.method === 'PUT' || req.method === 'POST') {
         const body = JSON.parse(await readBody(req));
         if (!Array.isArray(body)) return json(res, 400, { error: 'Expected an array' });
         fs.mkdirSync(CONFIG_DIR, { recursive: true });
-        const tmp = PLAYLISTS_FILE() + '.tmp';
+        const tmp = file + '.tmp';
         await fs.promises.writeFile(tmp, JSON.stringify(body, null, 1));
-        await fs.promises.rename(tmp, PLAYLISTS_FILE());
+        await fs.promises.rename(tmp, file);
         return json(res, 200, { ok: true });
       }
       let list = [];
-      try { list = JSON.parse(await fs.promises.readFile(PLAYLISTS_FILE(), 'utf8')); } catch { /* none yet */ }
+      try { list = JSON.parse(await fs.promises.readFile(file, 'utf8')); } catch { /* none yet */ }
       return json(res, 200, list);
     }
     if (p === '/api/models') {

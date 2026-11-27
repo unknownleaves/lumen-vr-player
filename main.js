@@ -15,7 +15,7 @@ const APP_ID = 'io.lumen.vrplayer';   // must match "appId" in package.json
 // are all recognised as one app and always show the Lumen icon.
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 const WINDOW_ICON = path.join(APP_ROOT, 'src', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
-const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', '3gp', 'divx', 'asf', 'f4v', 'rm', 'rmvb', 'm3u', 'm3u8'];
+const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', '3gp', 'divx', 'asf', 'f4v', 'rm', 'rmvb', 'm3u', 'm3u8', 'pls', 'xspf', 'asx', 'wax', 'wvx'];
 // Cross-origin isolation lets ONNX Runtime use multi-threaded WASM (SharedArrayBuffer).
 const ISOLATION = {
   'Cross-Origin-Opener-Policy': 'same-origin',

@@ -30,7 +30,7 @@ const HTTPS_PORT = +(process.env.HTTPS_PORT ?? 8443);
 const PASSWORD = process.env.LUMEN_PASSWORD || '';
 const VERSION = require('../package.json').version;
 const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.ogv', '.avi', '.wmv', '.flv', '.ts', '.m2ts', '.mts',
-  '.mpg', '.mpeg', '.vob', '.3gp', '.divx', '.asf', '.f4v', '.rm', '.rmvb']);
+  '.mpg', '.mpeg', '.vob', '.3gp', '.divx', '.asf', '.f4v', '.rm', '.rmvb', '.m3u', '.m3u8']);
 const PLAYLISTS_FILE = () => path.join(CONFIG_DIR, 'playlists.json');
 const encPath = (rel) => rel.split('/').map(encodeURIComponent).join('/');
 
@@ -152,14 +152,47 @@ async function handle(req, res) {
       const r = url.searchParams.get('q') ? { path: '/', folders: [], videos: await search(url.searchParams.get('q')) } : await listFolder(url.searchParams.get('path') || '/');
       return r ? json(res, 200, r) : json(res, 404, { error: 'Folder not found' });
     }
+    if (p === '/api/probe' && url.searchParams.get('u')) {
+      // Network stream (HLS .m3u8, HTTP, RTSP…): the server reads it with FFmpeg and passes it on as MP4.
+      const src = url.searchParams.get('u');
+      if (!media.isUrl(src)) return json(res, 400, { error: 'Not a stream link' });
+      const caps = { hevc: url.searchParams.get('hevc') === '1', av1: url.searchParams.get('av1') !== '0' };
+      if (url.searchParams.get('force') === 'transcode') caps.force = 'transcode';
+      const d = await media.describe(src, caps);
+      if (!d.ffmpeg) return json(res, 500, { error: 'FFmpeg is not available on the server' });
+      if (!d.videoCodec && !d.audioCodec) return json(res, 502, { error: 'Could not open that stream (check the link, or whether it is online)' });
+      const q = new URLSearchParams({ u: src, mode: d.mode === 'transcode' ? 'transcode' : 'remux', copyAudio: d.copyAudio ? '1' : '0', codec: d.videoCodec, acodec: d.audioCodec });
+      const fb = new URLSearchParams({ u: src, mode: 'transcode', copyAudio: d.copyAudio ? '1' : '0', acodec: d.audioCodec });
+      return json(res, 200, { ...d, url: '/stream-url?' + q, fallbackUrl: '/stream-url?' + fb, streamed: true });
+    }
+    if (p === '/stream-url') {
+      const q = url.searchParams;
+      const src = q.get('u') || '';
+      if (!media.isUrl(src)) return json(res, 400, { error: 'Not a stream link' });
+      let child;
+      try {
+        child = media.stream(src, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', audioCodec: q.get('acodec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
+      } catch (e) { return json(res, 500, { error: e.message }); }
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store', ...ISOLATION });
+      child.stdout.pipe(res);
+      const stop = () => child.kill('SIGKILL');
+      req.on('close', stop);
+      res.on('close', stop);
+      return;
+    }
+    if (p === '/api/fetch-text') {
+      // Download an M3U channel list for the player (no browser CORS limits on the server).
+      try { return json(res, 200, await media.fetchText(url.searchParams.get('u') || '')); } catch (e) { return json(res, 502, { error: e.message }); }
+    }
     if (p === '/api/probe') {
       const rel = url.searchParams.get('path') || '';
       const f = safeJoin(MEDIA_DIR, encPath(rel));
       if (!f || !fs.existsSync(f)) return json(res, 404, { error: 'File not found' });
       const caps = { hevc: url.searchParams.get('hevc') === '1', av1: url.searchParams.get('av1') !== '0' };
+      if (url.searchParams.get('force') === 'transcode') caps.force = 'transcode';
       const d = await media.describe(f, caps);
       const direct = '/media' + encPath(rel);
-      const streamUrl = '/stream' + encPath(rel) + `?mode=${d.mode}&copyAudio=${d.copyAudio ? 1 : 0}&codec=${encodeURIComponent(d.videoCodec)}`;
+      const streamUrl = '/stream' + encPath(rel) + `?mode=${d.mode}&copyAudio=${d.copyAudio ? 1 : 0}&codec=${encodeURIComponent(d.videoCodec)}&acodec=${encodeURIComponent(d.audioCodec)}`;
       return json(res, 200, { ...d, name: path.basename(f), lib: rel, url: d.mode === 'direct' ? direct : streamUrl, streamed: d.mode !== 'direct',
         fallbackUrl: '/stream' + encPath(rel) + `?mode=transcode&copyAudio=${d.copyAudio ? 1 : 0}` });
     }
@@ -169,7 +202,7 @@ async function handle(req, res) {
       const q = url.searchParams;
       let child;
       try {
-        child = media.stream(f, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
+        child = media.stream(f, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', audioCodec: q.get('acodec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
       } catch (e) { return json(res, 500, { error: e.message }); }
       res.writeHead(200, { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store', ...ISOLATION });
       child.stdout.pipe(res);

@@ -3,6 +3,7 @@ import { XRPlayer } from './xr.js';
 import { AIUpscaler } from './ai.js';
 import { detectFormat, eyeAspect } from './detect.js';
 import { Queue } from './queue.js';
+import { parseM3U, isHlsPlaylist, groupsOf, looksLikeM3U, isStreamUrl } from './m3u.js';
 import { perspective, multiply, invert, rotX, rotY } from './math.js';
 
 const $ = (id) => document.getElementById(id);
@@ -71,7 +72,8 @@ XRPlayer.supported().then((ok) => {
 const cur = { item: null, info: null, url: '', offset: 0, streamed: false, duration: 0, retried: false, token: 0 };
 const curTime = () => cur.offset + (video.currentTime || 0);
 const totalTime = () => (cur.streamed ? cur.duration || 0 : (isFinite(video.duration) ? video.duration : cur.duration || 0));
-const withStart = (url, t) => url + (url.includes('?') ? '&' : '?') + 'start=' + t.toFixed(3) + (cur.maxWidth ? '&maxWidth=' + cur.maxWidth : '');
+const withStart = (url, t) => url + (url.includes('?') ? '&' : '?') + 'start=' + (cur.live ? 0 : t).toFixed(3) + (cur.maxWidth ? '&maxWidth=' + cur.maxWidth : '');
+const isLive = () => !!cur.live || (!!cur.item && video.duration === Infinity);
 
 function restartStream(t, play) {
   cur.offset = t;
@@ -141,6 +143,7 @@ video.addEventListener('waiting', () => {
 async function prepareItem(item, force) {
   const c = caps();
   if (force) c.force = force;
+  if (item.url && isStreamUrl(item.url) && !item.url.startsWith(location.origin)) return prepareStream(item.url, c, force);
   if (item.path && host && host.prepare) return host.prepare(item.path, c);
   if (item.lib && server) {
     const q = new URLSearchParams({ path: item.lib, hevc: c.hevc ? '1' : '0', av1: c.av1 ? '1' : '0' });
@@ -159,8 +162,96 @@ async function prepareItem(item, force) {
   return { url: item.url, streamed: false, mode: 'direct' };
 }
 
+/** Live / network streams: desktop and server read them with FFmpeg; the Android app relays them itself. */
+async function prepareStream(url, c, force) {
+  if (host && host.prepare) return host.prepare(url, c);
+  if (server) {
+    const q = new URLSearchParams({ u: url, hevc: c.hevc ? '1' : '0', av1: c.av1 ? '1' : '0' });
+    if (force) q.set('force', force);
+    const r = await fetch(apiUrl('/api/probe?' + q));
+    const info = await r.json().catch(() => ({}));
+    if (!r.ok) return { error: info.error || 'Could not open that stream' };
+    info.url = apiUrl(info.url);
+    info.fallbackUrl = apiUrl(info.fallbackUrl);
+    return info;
+  }
+  if (android) {
+    // The app's relay fetches the stream and rewrites HLS playlists so every segment stays same-origin.
+    const hls = looksLikeM3U(url);
+    return { url: `/proxy/${hls ? 'live.m3u8' : 'media'}?url=${encodeURIComponent(url)}`, streamed: false, mode: 'direct', live: hls, native: true };
+  }
+  return { url, streamed: false, mode: 'direct', native: true };
+}
+
+/** Text of an M3U list from anywhere: a link, a local file, the server library or a file picked on this device. */
+async function fetchListText(item) {
+  if (item.file) return { text: await item.file.text(), base: '' };
+  if (item.path && host) {
+    const r = await host.readText(item.path);
+    if (r.error) throw new Error(r.error);
+    return { text: r.text, base: '', dir: r.dir, sep: r.sep };
+  }
+  if (item.lib && server) {
+    const r = await fetch(apiUrl('/media' + item.lib.split('/').map(encodeURIComponent).join('/')));
+    if (!r.ok) throw new Error('Could not read ' + item.name);
+    return { text: await r.text(), base: '', libDir: item.lib.split('/').slice(0, -1).join('/') };
+  }
+  const url = item.url;
+  if (host) { const r = await host.fetchText(url); if (r.error) throw new Error(r.error); return { text: r.text, base: r.finalUrl || url }; }
+  if (server) {
+    const r = await fetch(apiUrl('/api/fetch-text?u=' + encodeURIComponent(url)));
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Could not download the list');
+    return { text: j.text, base: j.finalUrl || url };
+  }
+  if (android) {
+    const r = await fetch('/proxy/list.m3u?url=' + encodeURIComponent(url));
+    if (!r.ok) throw new Error('Could not download the list');
+    return { text: await r.text(), base: url };
+  }
+  const r = await fetch(url);
+  return { text: await r.text(), base: url };
+}
+
+/** An .m3u/.m3u8 item: either an HLS stream (play it) or a channel list (browse it). Returns true when handled as a list. */
+async function openM3U(item) {
+  let res;
+  try { res = await fetchListText(item); } catch (e) {
+    // Couldn't read it as text (e.g. the server only answers players): try it as a stream.
+    if (item.url) return false;
+    toast(e.message, 5000);
+    return true;
+  }
+  if (isHlsPlaylist(res.text)) return false;            // a single stream: play it
+  let items = parseM3U(res.text, res.base);
+  // Entries relative to a local list file → files next to it.
+  items = (await Promise.all(items.map(async (it) => {
+    if (isStreamUrl(it.url)) return { name: it.name, url: it.url, group: it.group, logo: it.logo };
+    if (res.dir && host) {
+      const isAbs = /^([a-z]:[\\/]|[\\/])/i.test(it.url);
+      const p = isAbs ? it.url : res.dir + res.sep + it.url.replace(/[\\/]/g, res.sep);
+      return (await host.allowPath(decodeURIComponent(p))) ? { name: it.name, path: decodeURIComponent(p), group: it.group } : null;
+    }
+    if (res.libDir !== undefined && server) return { name: it.name, lib: (res.libDir + '/' + it.url).replace(/\/+/g, '/'), group: it.group };
+    return null;                                          // relative entry we can't resolve here
+  }))).filter(Boolean);
+  if (!items.length) { toast('No playable entries found in ' + item.name, 5000); return true; }
+  openChannels(items, item.name.replace(/\.m3u8?$/i, ''));
+  return true;
+}
+
 async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
   if (!item) return;
+  if (!item.hls && !force && looksLikeM3U(item.path || item.lib || item.url || item.name)) {
+    const isList = await openM3U(item);
+    if (isList) {
+      const i = queue.items.indexOf(item);
+      if (i >= 0) queue.remove(i);
+      return;
+    }
+    item.hls = true;
+  }
+  if (isStreamUrl(item.url) && !item.hls) toast('Connecting to stream…', 2500);
   const token = ++cur.token;
   fileName = item.name || 'video';
   $('title').textContent = fileName;
@@ -168,7 +259,8 @@ async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
   const info = await prepareItem(item, force);
   if (token !== cur.token) return;                    // another item was chosen meanwhile
   if (!info || info.error || !info.url) { toast(info && info.error ? info.error : 'Could not open ' + fileName, 5000); return; }
-  Object.assign(cur, { item, info, url: info.url, offset: 0, streamed: !!info.streamed, duration: info.duration || 0, retried: !!force, maxWidth: 0 });
+  Object.assign(cur, { item, info, url: info.url, offset: 0, streamed: !!info.streamed, duration: info.live ? 0 : info.duration || 0, retried: !!force, maxWidth: 0, live: !!info.live });
+  if (cur.live) at = 0;
   if (info.mode && info.mode !== 'direct' && !force) toast(info.mode === 'transcode' ? `Converting ${info.videoCodec || 'video'} for playback…` : 'Preparing ' + (info.reason || 'video') + '…', 2500);
   if (cur.streamed) cur.offset = at;
   const crossOrigin = /^https?:/i.test(cur.url) && !cur.url.startsWith(location.origin);
@@ -194,6 +286,7 @@ async function playItem(item, { autoplay = true, force = null, at = 0 } = {}) {
 
 /** Seek on the full-length timeline, restarting the FFmpeg stream when needed. */
 function seekTo(t) {
+  if (isLive()) return;                                  // live streams can't be scrubbed
   const d = totalTime();
   t = Math.max(0, d ? Math.min(d - 0.05, t) : t);
   if (!cur.streamed) { video.currentTime = t; return; }
@@ -288,7 +381,11 @@ video.addEventListener('error', () => {
   const err = video.error;
   if (!cur.item || !video.getAttribute('src')) return;
   // The browser refused the file: retry once through FFmpeg conversion when we can.
-  if (!cur.retried && ((host && cur.item.path) || (server && cur.item.lib)) && (!cur.info || cur.info.ffmpeg !== false)) {
+  if (cur.info && cur.info.native && cur.item.url && !cur.retried) {
+    toast('This stream could not be played on this device. Connect to your Lumen server to play it through FFmpeg.', 7000);
+    return;
+  }
+  if (!cur.retried && ((host && (cur.item.path || isStreamUrl(cur.item.url))) || (server && (cur.item.lib || isStreamUrl(cur.item.url)))) && (!cur.info || cur.info.ffmpeg !== false)) {
     toast('Converting this video for playback…', 2500);
     playItem(cur.item, { force: 'transcode', at: curTime() });
     return;
@@ -931,6 +1028,13 @@ $('seek').addEventListener('mousemove', (e) => {
   $('seekTip').textContent = fmt(f * totalTime());
 });
 function updateTimeline() {
+  const live = isLive();
+  document.body.classList.toggle('live', live);
+  if (live) {
+    $('cur').textContent = '● LIVE';
+    $('dur').textContent = '';
+    return;
+  }
   const d = totalTime();
   const f = d ? Math.min(1, curTime() / d) : 0;
   $('played').style.width = f * 100 + '%';
@@ -1100,7 +1204,7 @@ window.addEventListener('keydown', (e) => {
     case '[': setSpeed(-1); break;
     case ']': setSpeed(1); break;
     case '?': $('help').hidden = !$('help').hidden; break;
-    case 'Escape': $('help').hidden = true; $('panel').hidden = true; $('library').hidden = true; toggleQueue(false); closePops(); break;
+    case 'Escape': $('help').hidden = true; $('streamDlg').hidden = true; $('panel').hidden = true; $('library').hidden = true; toggleQueue(false); closePops(); break;
     default: return;
   }
   if (handled) e.preventDefault();
@@ -1382,6 +1486,9 @@ renderQueue();
 // Server edition: media library
 let libPath = load('lumen.libPath', '/');
 let libVideos = [];
+let libMode = 'files';                  // 'files' (server library) or 'channels' (an M3U list)
+let chItems = [], chName = '', chGroup = null;
+const libListName = () => (libMode === 'channels' ? (chGroup ? `${chName} · ${chGroup || 'Other'}` : chName) : (libPath.split('/').pop() || 'Media'));
 const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="currentColor" opacity=".85"/></svg>';
 const ICON_VIDEO = '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/></svg>';
 const fmtSize = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB');
@@ -1392,6 +1499,12 @@ function vrTag(name) {
 }
 
 async function openLibrary(path = libPath) {
+  libMode = 'files';
+  $('libSearch').placeholder = 'Search videos…';
+  $('libSaveList').hidden = true;
+  $('libPlayAll').lastChild.textContent = 'Play folder';
+  $('libShuffleAll').lastChild.textContent = 'Shuffle folder';
+  $('libAddAll').lastChild.textContent = 'Add folder to queue';
   $('library').hidden = false;
   $('library').querySelector('h2').textContent = addMode ? 'Add to queue' : 'Library';
   if (!$('libSearch').value) await showFolder(path);
@@ -1461,11 +1574,130 @@ let libSearchTimer = 0;
 $('libSearch').addEventListener('input', (e) => {
   clearTimeout(libSearchTimer);
   const q = e.target.value.trim();
-  libSearchTimer = setTimeout(() => showFolder(libPath, q), 250);
+  libSearchTimer = setTimeout(() => (libMode === 'channels' ? renderChannels(q) : showFolder(libPath, q)), 250);
 });
 $('libClose').onclick = () => { $('library').hidden = true; addMode = false; };
-$('libPlayAll').onclick = () => { queue.replace(libVideos, libPath.split('/').pop() || 'Media'); if (queue.shuffle) queue.setShuffle(false); $('library').hidden = true; playIndex(0); };
-$('libShuffleAll').onclick = () => { queue.replace(libVideos, libPath.split('/').pop() || 'Media'); queue.setShuffle(true); $('library').hidden = true; playIndex(queue.order[0]); };
+$('libPlayAll').onclick = () => { queue.replace(libVideos, libListName()); if (queue.shuffle) queue.setShuffle(false); $('library').hidden = true; playIndex(0); };
+$('libShuffleAll').onclick = () => { queue.replace(libVideos, libListName()); queue.setShuffle(true); $('library').hidden = true; playIndex(queue.order[0]); };
+$('libSaveList').onclick = async () => {
+  const lists = await PL.list();
+  const items = chItems.map(({ name, url, path, lib }) => ({ name, url, path, lib }));
+  const existing = lists.find((l) => l.name.toLowerCase() === chName.toLowerCase());
+  if (existing) { existing.items = items; existing.updated = Date.now(); } else lists.push({ id: Date.now().toString(36), name: chName, items, updated: Date.now() });
+  try { await PL.saveAll(lists); toast(`Saved “${chName}” (${items.length}) to Playlists`); } catch (e) { toast(e.message, 4000); }
+};
+
+// ---- Channel browser for M3U lists (reuses the library window)
+function openChannels(items, name) {
+  libMode = 'channels';
+  chItems = items; chName = name || 'Channels'; chGroup = null;
+  $('libSearch').value = '';
+  $('libSaveList').hidden = false;
+  $('libSearch').placeholder = 'Search channels…';
+  $('library').querySelector('h2').textContent = chName;
+  $('library').hidden = false;
+  renderChannels();
+}
+
+function renderChannels(query = '') {
+  libMode = 'channels';
+  const list = $('libList'), crumbs = $('libCrumbs');
+  const groups = groupsOf(chItems);
+  crumbs.innerHTML = '';
+  const mk = (label, g) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { chGroup = g; $('libSearch').value = ''; renderChannels(); }; return b; };
+  crumbs.append(mk(`All channels (${chItems.length})`, null));
+  if (chGroup !== null) { const sep = document.createElement('span'); sep.textContent = '›'; crumbs.append(sep, mk(chGroup || 'Other', chGroup)); }
+  const q = query.trim().toLowerCase();
+  let shown = [];
+  list.innerHTML = '';
+  if (!q && chGroup === null && groups.length > 1) {
+    for (const g of groups) {
+      const b = document.createElement('button');
+      b.className = 'folder';
+      b.innerHTML = `${ICON_FOLDER}<span class="name">${esc(g.name || 'Other')}</span><span class="meta">${g.count}</span>`;
+      b.onclick = () => { chGroup = g.name; renderChannels(); };
+      list.append(b);
+    }
+    shown = chItems;   // "Play all" etc. act on the whole list here
+  } else {
+    shown = chItems.filter((it) => (q ? (it.name || '').toLowerCase().includes(q) || (it.group || '').toLowerCase().includes(q) : chGroup === null || (it.group || '') === chGroup));
+    const MAX = 600;
+    shown.slice(0, MAX).forEach((it, idx) => {
+      const b = document.createElement('button');
+      const live = isStreamUrl(it.url);
+      b.innerHTML = `${live ? '<svg><use href="#i-live"/></svg>' : ICON_VIDEO}<span class="name">${esc(it.name)}</span>${q && it.group ? `<span class="grp">${esc(it.group)}</span>` : ''}<span class="add" role="button" title="Add to queue"><svg><use href="#i-plus"/></svg></span>`;
+      b.onclick = (e) => {
+        const item = { name: it.name, url: it.url, path: it.path, lib: it.lib };
+        if (e.target.closest('.add')) { addAndPlay([item], { play: false }); return; }
+        // Put the whole group in the queue so Next / Previous switch channels.
+        queue.replace(shown.map(({ name, url, path, lib }) => ({ name, url, path, lib })), libListName());
+        if (queue.shuffle) queue.setShuffle(false);
+        $('library').hidden = true;
+        playIndex(idx);
+      };
+      list.append(b);
+    });
+    if (shown.length > MAX) list.insertAdjacentHTML('beforeend', `<div class="empty">Showing ${MAX} of ${shown.length}. Search to find more.</div>`);
+    if (!shown.length) list.innerHTML = '<div class="empty">No matching channels.</div>';
+  }
+  libVideos = shown.map(({ name, url, path, lib }) => ({ name, url, path, lib }));
+  $('libActions').hidden = !libVideos.length;
+  $('libPlayAll').lastChild.textContent = 'Play all';
+  $('libShuffleAll').lastChild.textContent = 'Shuffle';
+  $('libAddAll').lastChild.textContent = 'Add to queue';
+}
+
+// ---- "Open stream link" dialog
+function openStreamDialog() {
+  $('streamDlg').hidden = false;
+  const recent = load('lumen.streamLinks', []);
+  $('streamRecentWrap').hidden = !recent.length;
+  const ul = $('streamRecent');
+  ul.innerHTML = '';
+  for (const u of recent) {
+    const li = document.createElement('li');
+    li.textContent = u;
+    li.title = u;
+    li.onclick = () => { $('streamUrl').value = u; $('streamGo').click(); };
+    ul.append(li);
+  }
+  setTimeout(() => $('streamUrl').focus(), 50);
+}
+function streamName(u) {
+  try {
+    const x = new URL(u);
+    const last = decodeURIComponent(x.pathname.split('/').filter(Boolean).pop() || '');
+    return last && !/^(index|playlist|master|live|stream|chunklist)[\w-]*\.(m3u8?|ts)$/i.test(last) ? last : x.host + (last ? ' · ' + last : '');
+  } catch { return u; }
+}
+$('streamBtn').onclick = openStreamDialog;
+$('streamClose').onclick = () => { $('streamDlg').hidden = true; };
+$('streamDlg').onclick = (e) => { if (e.target.id === 'streamDlg') $('streamDlg').hidden = true; };
+$('streamFile').onclick = () => { $('streamDlg').hidden = true; $('fileInput').click(); };
+$('streamUrl').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $('streamGo').click(); });
+$('streamGo').onclick = async () => {
+  let u = $('streamUrl').value.trim();
+  if (!u) return;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'http://' + u;
+  if (!isStreamUrl(u)) return toast('That doesn’t look like a stream link (http, https, rtsp, rtmp, udp, srt)', 4000);
+  save('lumen.streamLinks', [u, ...load('lumen.streamLinks', []).filter((x) => x !== u)].slice(0, 10));
+  $('streamDlg').hidden = true;
+  const item = { name: streamName(u), url: u };
+  // IPTV list links often have no .m3u ending (e.g. get.php?…&type=m3u_plus): peek at the content first.
+  const mediaExt = /\.(mp4|m4v|mkv|webm|mov|ts|m2ts|mpg|mpeg|flv|avi|wmv|mp3|aac)(\?|$)/i.test(u);
+  if (/^https?:/i.test(u) && !mediaExt && !looksLikeM3U(u)) {
+    try {
+      const res = await fetchListText(item);
+      if (/^\s*#EXTM3U/i.test(res.text) && !isHlsPlaylist(res.text)) {
+        item.name = streamName(u).replace(/\.m3u8?$/i, '') || 'Channels';
+        const items = parseM3U(res.text, res.base).filter((it) => isStreamUrl(it.url)).map((it) => ({ name: it.name, url: it.url, group: it.group }));
+        if (items.length) { openChannels(items, item.name); return; }
+      }
+    } catch { /* not a list: play it as a stream */ }
+  }
+  addAndPlay([item], { play: true });
+};
+if (host && host.onShowStreamDialog) host.onShowStreamDialog(() => { if (!document.body.classList.contains('loaded')) renderHome(); openStreamDialog(); });
 $('libAddAll').onclick = () => addAndPlay(libVideos.map((x) => ({ ...x })), { play: false });
 $('library').onclick = (e) => { if (e.target.id === 'library') { $('library').hidden = true; addMode = false; } };
 $('libLocal').onclick = () => { $('library').hidden = true; $('fileInput').click(); };
@@ -1626,7 +1858,7 @@ if (!upd) {
 }
 
 window.__lumenBack = () => {
-  for (const id of ['help', 'serverDlg', 'library', 'panel', 'queue', 'endCard']) {
+  for (const id of ['help', 'streamDlg', 'serverDlg', 'library', 'panel', 'queue', 'endCard']) {
     if (!$(id).hidden) {
       $(id).hidden = true; syncPlaylistButtons();
       if (id === 'endCard') goHome();

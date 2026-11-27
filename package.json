@@ -1,7 +1,7 @@
 {
   "name": "lumen-vr-player",
   "productName": "Lumen VR Player",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "description": "Cross-platform 2D/3D/180\u00b0/360\u00b0 VR video player with real-time GPU upscaling and AI super-resolution.",
   "main": "main.js",
   "author": "Lumen VR Player contributors",
@@ -13,7 +13,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "test": "node test/unit.test.mjs && node test/updater.test.mjs && node test/queue.test.mjs",
+    "test": "node test/unit.test.mjs && node test/updater.test.mjs && node test/queue.test.mjs && node test/m3u.test.mjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis portable --x64 --arm64",
     "dist:mac": "electron-builder --mac dmg zip --universal",

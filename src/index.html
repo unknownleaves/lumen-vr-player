@@ -32,6 +32,7 @@
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="7" r="1.4" fill="currentColor"/><circle cx="15" cy="7" r="1.4" fill="currentColor"/><circle cx="9" cy="12" r="1.4" fill="currentColor"/><circle cx="15" cy="12" r="1.4" fill="currentColor"/><circle cx="9" cy="17" r="1.4" fill="currentColor"/><circle cx="15" cy="17" r="1.4" fill="currentColor"/></symbol>
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.2 12 4.5l8 6.7V19a1.5 1.5 0 0 1-1.5 1.5H15v-5.5H9v5.5H5.5A1.5 1.5 0 0 1 4 19z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a9.3 9.3 0 0 0 0 13.2M18.6 5.4a9.3 9.3 0 0 1 0 13.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
@@ -66,6 +67,7 @@
   </button>
   <div class="cta">
     <button id="openBtn" class="primary"><svg><use href="#i-open"/></svg>Open videos</button>
+    <button id="streamBtn" class="ghost"><svg><use href="#i-live"/></svg>Open stream link</button>
     <button id="serverBtn" class="ghost" hidden><svg><use href="#i-sphere"/></svg>Connect to server</button>
     <button id="emptyModelBtn" class="ghost"><svg><use href="#i-spark"/></svg>Load AI model</button>
   </div>
@@ -111,7 +113,7 @@
       <button id="muteBtn" class="icon sm" title="Mute (M)"><svg><use href="#i-vol"/></svg></button>
       <input id="volume" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume">
     </div>
-    <div class="time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
+    <div class="time"><span id="cur">0:00</span><span class="sep"> / </span><span id="dur">0:00</span></div>
     <div class="spacer"></div>
     <button id="shuffleBtn" class="icon sm" title="Shuffle (H)"><svg><use href="#i-shuffle"/></svg></button>
     <button id="repeatBtn" class="icon sm" title="Repeat: off (T)"><svg><use href="#i-repeat"/></svg></button>
@@ -345,11 +347,28 @@
       <button id="libPlayAll" class="ghost sm"><svg><use href="#i-play"/></svg>Play folder</button>
       <button id="libShuffleAll" class="ghost sm"><svg><use href="#i-shuffle"/></svg>Shuffle folder</button>
       <button id="libAddAll" class="ghost sm"><svg><use href="#i-plus"/></svg>Add folder to queue</button>
+      <button id="libSaveList" class="ghost sm" hidden>Save as playlist</button>
     </div>
     <div id="libList"></div>
     <div class="lib-foot">
       <span id="libHint"></span>
       <button id="libLocal" class="ghost sm">Open a file from this device…</button>
+    </div>
+  </div>
+</div>
+
+<div id="streamDlg" hidden>
+  <div class="help-card">
+    <div class="panel-head"><h2>Open a stream or channel list</h2><button id="streamClose" class="icon sm"><svg><use href="#i-close"/></svg></button></div>
+    <p class="lede-sm">Paste a link to a live stream (<b>.m3u8</b>, .ts, RTSP camera…) or to an <b>M3U channel list</b> (IPTV). Lists open as a channel browser you can search and save as a playlist.</p>
+    <input id="streamUrl" class="q-input" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://example.com/live/stream.m3u8">
+    <div class="btns" style="margin-top:10px">
+      <button id="streamGo" class="primary sm">Open</button>
+      <button id="streamFile" class="ghost sm">Open an .m3u file…</button>
+    </div>
+    <div id="streamRecentWrap" hidden>
+      <p class="lede-sm" style="margin-bottom:4px">Recent links</p>
+      <ul id="streamRecent" class="mini-list"></ul>
     </div>
   </div>
 </div>
@@ -366,7 +385,7 @@
 
 <div id="drop" hidden><div>Drop to play</div></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<input type="file" id="fileInput" accept="video/*,.mkv,.mov,.m4v,.webm,.avi,.wmv,.flv,.ts,.m2ts,.mpg,.mpeg" multiple hidden>
+<input type="file" id="fileInput" accept="video/*,.mkv,.mov,.m4v,.webm,.avi,.wmv,.flv,.ts,.m2ts,.mpg,.mpeg,.m3u,.m3u8" multiple hidden>
 <input type="file" id="modelInput" accept=".onnx" hidden>
 <script type="module" src="app.js"></script>
 </body>

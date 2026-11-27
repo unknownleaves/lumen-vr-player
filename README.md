@@ -9,6 +9,7 @@ A desktop video player for **Windows, macOS, Linux and Debian/Ubuntu** that play
 | | |
 |---|---|
 | **Files** | Any common video: MP4, MKV, AVI, WMV, MOV, WebM, MPEG-TS/M2TS, MPG/VOB, FLV, 3GP… with any codec (H.264, HEVC, AV1, VP9, MPEG-2, DivX/Xvid, WMV, VC-1…) and audio (AAC, AC3, E-AC3, DTS, FLAC…). Files the browser engine can't play are converted on the fly by FFmpeg. |
+| **Live streams** | **Open stream link**: HLS `.m3u8`, MPEG-TS over HTTP, RTSP cameras, RTMP/UDP/SRT. **M3U / IPTV lists** open as a channel browser (groups, search, Next/Previous switches channels) and can be saved as playlists. Live channels show ● LIVE |
 | **Playlists** | Queue with next / previous, **repeat one**, **repeat all**, **shuffle**, drag-to-reorder · saved, named playlists (on the server they're shared between all your devices) · play / shuffle / queue a whole folder |
 | **VR formats** | 2D · 3D side-by-side / top-bottom (full or half) · 360° mono/stereo · VR180 (equirect) · 180° fisheye. Detected from filename tags or the video's own VR metadata |
 | **VR** | Look-around on a monitor (drag / wheel) · red-cyan anaglyph · real headsets via **WebXR / OpenXR** (SteamVR, Meta Quest Link & Air Link, Windows Mixed Reality, Pico Connect, Varjo…) · 3D movies on a virtual cinema screen |
@@ -179,6 +180,23 @@ Ready-made ONNX files from OpenModelDB / Hugging Face also work if they match th
 * **Linux:** headset support depends on Chromium's OpenXR support, which is limited (Monado may work). Look-around and anaglyph viewing work everywhere.
 * **macOS:** there is no PC-VR runtime, so you get desktop look-around and anaglyph viewing.
 * 2D and 3D movies in a headset play on a large virtual screen. 3D movies show true stereo.
+
+## Live streams & M3U lists
+
+Click **Open stream link** on the start screen (desktop: **File → Open Stream / M3U Link…**, Ctrl+Shift+O) and paste a link:
+
+* **A stream:** an HLS `.m3u8`, an HTTP MPEG-TS stream, an RTSP camera (`rtsp://…`), RTMP, UDP or SRT. It plays straight away, and live streams show **● LIVE**.
+* **A channel list (M3U / IPTV):** including provider links without a `.m3u` ending, such as `get.php?…&type=m3u_plus`. It opens as a channel browser with the list's groups and a search box. Clicking a channel puts its group in the queue, so **Next / Previous** switch channels. **Save as playlist** keeps the list.
+
+You can also open `.m3u` / `.m3u8` files with **Open videos**. Entries relative to the file are found next to it. On the server, `.m3u` files in the media folder show up in the library.
+
+How streams are played:
+
+* **Desktop and server:** FFmpeg reads the stream and passes it on. That works with any provider (no browser restrictions), and channels in MPEG-2 or AC3 (TV tuners, many IPTV feeds) are converted automatically.
+* **Android connected to your server:** the server does the work.
+* **Android on its own:** the app relays the stream itself and plays HLS with Android's built-in decoder. If a channel won't play that way, connect to your server.
+
+The server's stream feature fetches whatever link a viewer gives it. If you expose the server to the internet, set `LUMEN_PASSWORD`.
 
 ## Formats & conversion
 

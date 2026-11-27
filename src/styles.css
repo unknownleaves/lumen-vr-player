@@ -292,3 +292,16 @@ body:not(.loaded) #endCard { display: none; }
   background: rgba(255,255,255,.05) !important; border: 1px solid var(--line) !important; color: var(--dim); }
 .home-gear:hover { color: var(--ink); background: rgba(255,255,255,.1) !important; }
 .home-gear svg { width: 22px; height: 22px; }
+
+/* ---------- live streams & channel lists ---------- */
+#streamDlg { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); z-index: 60; }
+#streamDlg[hidden] { display: none; }
+#streamDlg .q-input { width: 100%; padding: 11px 12px; font-size: 15px; }
+.mini-list { list-style: none; margin: 0; padding: 0; max-height: 170px; overflow-y: auto; }
+.mini-list li { padding: 7px 8px; border-radius: 7px; font-size: 12.5px; color: var(--dim); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-list li:hover { background: rgba(255,255,255,.07); color: var(--ink); }
+body.live .seek { visibility: hidden; }
+body.live #backBtn, body.live #fwdBtn { display: none; }
+body.live .time #cur { color: #ff6b6b; font-weight: 700; letter-spacing: .04em; }
+#libList .grp { color: var(--faint); font: 11px ui-monospace, Menlo, Consolas, monospace; }
+body.live .time .sep, body.live .time #dur { display: none; }

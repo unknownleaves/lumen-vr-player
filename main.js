@@ -15,7 +15,7 @@ const APP_ID = 'io.lumen.vrplayer';   // must match "appId" in package.json
 // are all recognised as one app and always show the Lumen icon.
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 const WINDOW_ICON = path.join(APP_ROOT, 'src', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
-const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', '3gp', 'divx', 'asf', 'f4v', 'rm', 'rmvb'];
+const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ogv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', '3gp', 'divx', 'asf', 'f4v', 'rm', 'rmvb', 'm3u', 'm3u8'];
 // Cross-origin isolation lets ONNX Runtime use multi-threaded WASM (SharedArrayBuffer).
 const ISOLATION = {
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -42,6 +42,7 @@ protocol.registerSchemesAsPrivileged([
 
 // Only files the user explicitly opened (or the models folders) can be served to the renderer.
 const allowedFiles = new Set();
+const allowedUrls = new Set();   // network streams the user opened (served through app://streamurl)
 let mainWindow = null;
 let pendingOpen = [];
 let updater = null;
@@ -89,6 +90,21 @@ function handleProtocol() {
       if (!allowedFiles.has(p) && !inModels) return new Response('Forbidden', { status: 403 });
       return fileResponse(p, range, ISOLATION);
     }
+    if (url.host === 'streamurl') {
+      // Live / network streams (HLS .m3u8, HTTP, RTSP…) read by FFmpeg and passed on as MP4.
+      const q = url.searchParams;
+      const src = q.get('u') || '';
+      if (!allowedUrls.has(src)) return new Response('Forbidden', { status: 403 });
+      let child;
+      try {
+        child = media.stream(src, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', audioCodec: q.get('acodec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
+      } catch (e) {
+        return new Response(e.message, { status: 500 });
+      }
+      const out = child.stdout;
+      out.on('close', () => child.kill('SIGKILL'));
+      return new Response(Readable.toWeb(out), { status: 200, headers: { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store', ...ISOLATION } });
+    }
     if (url.host === 'stream') {
       // On-the-fly remux / transcode through FFmpeg for formats Chromium can't play natively.
       const p = path.resolve(decodeURIComponent(url.pathname.slice(1)));
@@ -96,7 +112,7 @@ function handleProtocol() {
       const q = url.searchParams;
       let child;
       try {
-        child = media.stream(p, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
+        child = media.stream(p, { mode: q.get('mode') === 'transcode' ? 'transcode' : 'remux', copyAudio: q.get('copyAudio') === '1', start: Math.max(0, +q.get('start') || 0), codec: q.get('codec') || '', audioCodec: q.get('acodec') || '', maxWidth: Math.max(0, Math.min(7680, +q.get('maxWidth') || 0)) });
       } catch (e) {
         return new Response(e.message, { status: 500 });
       }
@@ -151,6 +167,7 @@ function buildMenu() {
       label: 'File',
       submenu: [
         { label: 'Open Videos…', accelerator: 'CmdOrCtrl+O', click: () => openVideoDialog().then((list) => list.forEach((r, i) => mainWindow.webContents.send('open-file', { ...r, enqueue: i > 0 }))) },
+        { label: 'Open Stream / M3U Link…', accelerator: 'CmdOrCtrl+Shift+O', click: () => mainWindow.webContents.send('show-stream-dialog') },
         { label: 'Open AI Models Folder', click: () => shell.openPath(modelDirs()[0]) },
         { label: 'Check for Updates…', click: () => { mainWindow.webContents.send('show-updates'); if (updater) updater.check(); } },
         { type: 'separator' },
@@ -167,7 +184,7 @@ async function openVideoDialog() {
   const res = await dialog.showOpenDialog(mainWindow, {
     title: 'Open videos',
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Video', extensions: VIDEO_EXT }, { name: 'All files', extensions: ['*'] }],
+    filters: [{ name: 'Videos & playlists', extensions: VIDEO_EXT }, { name: 'All files', extensions: ['*'] }],
   });
   if (res.canceled) return [];
   return res.filePaths.map((p) => { allowedFiles.add(path.resolve(p)); return { name: path.basename(p), path: path.resolve(p) }; });
@@ -175,13 +192,21 @@ async function openVideoDialog() {
 
 /** Probe a file and return the URL the player should load (direct file or FFmpeg stream). */
 async function prepare(p, caps) {
+  if (media.isUrl(p)) {
+    const d = await media.describe(p, caps || {});
+    if (!d.ffmpeg) return { error: 'Streams need FFmpeg, which was not found' };
+    if (!d.videoCodec && !d.audioCodec) return { error: 'Could not open that stream (check the link, or whether it is online)' };
+    allowedUrls.add(p);
+    const q = new URLSearchParams({ u: p, mode: d.mode === 'transcode' ? 'transcode' : 'remux', copyAudio: d.copyAudio ? '1' : '0', codec: d.videoCodec, acodec: d.audioCodec });
+    return { ...d, url: 'app://streamurl/?' + q.toString(), streamed: true, name: p.split(/[?#]/)[0].split('/').pop() || p };
+  }
   if (typeof p !== 'string' || !fs.existsSync(p)) return { error: 'File not found: ' + p };
   const full = path.resolve(p);
   allowedFiles.add(full);
   const d = await media.describe(full, caps || {});
   const url = d.mode === 'direct'
     ? fileUrl(full)
-    : `app://stream/${encodeURIComponent(full)}?mode=${d.mode}&copyAudio=${d.copyAudio ? 1 : 0}&codec=${encodeURIComponent(d.videoCodec)}`;
+    : `app://stream/${encodeURIComponent(full)}?mode=${d.mode}&copyAudio=${d.copyAudio ? 1 : 0}&codec=${encodeURIComponent(d.videoCodec)}&acodec=${encodeURIComponent(d.audioCodec)}`;
   return { ...d, url, name: path.basename(full), path: full, streamed: d.mode !== 'direct' };
 }
 
@@ -193,6 +218,23 @@ ipcMain.handle('register-path', (_e, p) => {
   return { name: path.basename(p), path: path.resolve(p) };
 });
 ipcMain.handle('prepare', (_e, p, caps) => prepare(p, caps));
+ipcMain.handle('fetch-text', async (_e, u) => {
+  try { return await media.fetchText(String(u)); } catch (e) { return { error: e.message }; }
+});
+ipcMain.handle('read-text', async (_e, p) => {
+  const full = path.resolve(String(p));
+  if (!allowedFiles.has(full)) return { error: 'Not allowed' };
+  try {
+    const st = await fs.promises.stat(full);
+    if (st.size > 20 * 1024 * 1024) return { error: 'That list is too large' };
+    return { text: await fs.promises.readFile(full, 'utf8'), dir: path.dirname(full), sep: path.sep };
+  } catch (e) { return { error: e.message }; }
+});
+ipcMain.handle('allow-path', (_e, p) => {   // entries of a local playlist the user opened
+  if (typeof p !== 'string' || !fs.existsSync(p)) return false;
+  allowedFiles.add(path.resolve(p));
+  return true;
+});
 ipcMain.handle('list-models', () => {
   const out = [];
   for (const dir of modelDirs()) {

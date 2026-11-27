@@ -46,6 +46,8 @@ import javax.net.ssl.X509TrustManager;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Lumen VR Player for Android.
@@ -238,12 +240,112 @@ public class MainActivity extends Activity {
         return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ") + "\"";
     }
 
+
+    // ---------------------------------------------------------------------------------------------
+    // Stream relay for live / network video (used when the app isn't connected to a Lumen server):
+    //   /proxy/<name>?url=<stream>  → fetched by the app. HLS playlists are rewritten so every segment
+    //   and sub-playlist also comes through this relay, keeping the stream same-origin for the player.
+    private static final String STREAM_UA = "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36 LumenVRPlayer";
+    private static final Pattern URI_ATTR = Pattern.compile("URI=\"([^\"]+)\"");
+
+    private static String relayUrl(String absolute) {
+        String p = absolute.toLowerCase(Locale.ROOT);
+        String name = p.contains(".m3u8") || p.contains(".m3u") ? "live.m3u8" : "seg";
+        return "/proxy/" + name + "?url=" + Uri.encode(absolute);
+    }
+
+    private static String absolutize(String base, String ref) {
+        try { return new URL(new URL(base), ref).toString(); } catch (Exception e) { return ref; }
+    }
+
+    private static String rewriteHls(String text, String base) {
+        StringBuilder out = new StringBuilder(text.length() + 1024);
+        for (String line : text.split("\r?\n")) {
+            String t = line.trim();
+            if (t.isEmpty()) { out.append('\n'); continue; }
+            if (t.startsWith("#")) {
+                Matcher m = URI_ATTR.matcher(t);
+                StringBuffer sb = new StringBuffer();
+                while (m.find()) m.appendReplacement(sb, Matcher.quoteReplacement("URI=\"" + relayUrl(absolutize(base, m.group(1))) + "\""));
+                m.appendTail(sb);
+                out.append(sb).append('\n');
+            } else {
+                out.append(relayUrl(absolutize(base, t))).append('\n');
+            }
+        }
+        return out.toString();
+    }
+
+    private WebResourceResponse proxyExternal(WebResourceRequest request) {
+        Uri u = request.getUrl();
+        String target = u.getQueryParameter("url");
+        Map<String, String> out = new HashMap<>();
+        out.put("Cache-Control", "no-store");
+        if (target == null || !(target.startsWith("http://") || target.startsWith("https://"))) {
+            return new WebResourceResponse("text/plain", "utf-8", 400, "Bad Request", out, new ByteArrayInputStream("Only http(s) links".getBytes(StandardCharsets.UTF_8)));
+        }
+        boolean rawList = u.getPath() != null && u.getPath().endsWith("/list.m3u");
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(target).openConnection();
+            c.setRequestProperty("User-Agent", STREAM_UA);
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(30000);
+            c.setInstanceFollowRedirects(true);
+            Map<String, String> in = request.getRequestHeaders();
+            if (in != null) for (Map.Entry<String, String> h : in.entrySet()) if (h.getKey().equalsIgnoreCase("Range")) c.setRequestProperty("Range", h.getValue());
+            int code = c.getResponseCode();
+            if (code >= 300 && code < 400) code = 502;
+            String type = c.getContentType() == null ? "" : c.getContentType().toLowerCase(Locale.ROOT);
+            String finalUrl = c.getURL().toString();
+            String lowerPath = c.getURL().getPath().toLowerCase(Locale.ROOT);
+            boolean looksPlaylist = type.contains("mpegurl") || lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".m3u")
+                    || (u.getPath() != null && u.getPath().endsWith(".m3u8"));
+            InputStream body = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (body == null) body = new ByteArrayInputStream(new byte[0]);
+            if (code < 400 && (looksPlaylist || rawList)) {
+                byte[] data = readAll(body, 20 * 1024 * 1024);
+                String text = new String(data, StandardCharsets.UTF_8);
+                if (!rawList && text.contains("#EXT-X-")) {
+                    byte[] rewritten = rewriteHls(text, finalUrl).getBytes(StandardCharsets.UTF_8);
+                    return new WebResourceResponse("application/vnd.apple.mpegurl", "utf-8", 200, "OK", out, new ByteArrayInputStream(rewritten));
+                }
+                return new WebResourceResponse("text/plain", "utf-8", code, "OK", out, new ByteArrayInputStream(data));
+            }
+            String mime = type.isEmpty() ? "application/octet-stream" : type.split(";")[0].trim();
+            for (String k : new String[]{"Content-Length", "Content-Range", "Accept-Ranges"}) {
+                String v = c.getHeaderField(k);
+                if (v != null) out.put(k, v);
+            }
+            String reason = c.getResponseMessage();
+            if (reason == null || reason.isEmpty()) reason = code == 206 ? "Partial Content" : "OK";
+            return new WebResourceResponse(mime, null, code, reason, out, body);
+        } catch (IOException e) {
+            return new WebResourceResponse("text/plain", "utf-8", 502, "Bad Gateway", out,
+                    new ByteArrayInputStream(String.valueOf(e.getMessage()).getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+
+    private static byte[] readAll(InputStream in, int limit) throws IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[16384];
+        int n;
+        while ((n = in.read(chunk)) > 0) {
+            buf.write(chunk, 0, n);
+            if (buf.size() > limit) throw new IOException("Too large");
+        }
+        in.close();
+        return buf.toByteArray();
+    }
+
     private class Client extends WebViewClient {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             Uri u = request.getUrl();
             if (ASSET_HOST.equals(u.getHost()) && u.getPath() != null && u.getPath().startsWith("/server/")) {
                 return proxyToServer(request);
+            }
+            if (ASSET_HOST.equals(u.getHost()) && u.getPath() != null && u.getPath().startsWith("/proxy/")) {
+                return proxyExternal(request);
             }
             return assetLoader.shouldInterceptRequest(u);
         }

@@ -1,0 +1,16 @@
+# Lumen VR Player server for UGREEN NAS (UGOS Pro) — Docker app → Project → Create, paste this.
+# Change the first volume to the shared folder that holds your videos (keep the lowercase /volume1).
+services:
+  lumen-vr-player:
+    image: ghcr.io/unknownleaves/lumen-vr-player:latest
+    container_name: lumen-vr-player
+    restart: unless-stopped
+    ports:
+      - "8095:8080"     # web player & phone app:  http://<nas-ip>:8095
+      - "8445:8443"     # secure address for VR headsets: https://<nas-ip>:8445
+    environment:
+      - LUMEN_PASSWORD=          # optional; leave empty for no password
+    volumes:
+      - /volume1/Media:/media:ro                          # ← your videos (read-only)
+      - /volume1/docker/lumen-vr-player/models:/models    # AI upscaling models (.onnx)
+      - /volume1/docker/lumen-vr-player/config:/config    # playlists, saved links, HTTPS certificate

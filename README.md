@@ -74,6 +74,8 @@ The server edition runs on your NAS and streams your video folders to any browse
 3. Check the **Volumes**. `/media` points to `/DATA/Media`; change it to wherever your videos are. Then click **Install**.
 4. Open the app from the dashboard, or go to `http://<zimaos-ip>:8095`.
 
+**UGREEN NAS (UGOS Pro):** open the **Docker** app → **Project** → **Create**, paste [`ugreen/docker-compose.yml`](ugreen/docker-compose.yml), change `/volume1/Media` to the shared folder with your videos (paths are case-sensitive: `/volume1`, not `/Volume1`), and deploy. Then open `http://<nas-ip>:8095`. If it doesn't load, check that the container shows *Running*, that its log says `http://<server-ip>:8095`, and that UGOS's firewall (Control Panel → Security) allows port 8095. **Synology / Unraid / others:** the same file works; adjust the folder paths.
+
 **VR headsets** (Quest, Pico…): open `https://<zimaos-ip>:8445` in the headset's browser. The first time, choose *Advanced → Proceed* to accept the server's own certificate. Open a video and press the **VR** button. Browsers only allow VR on secure (https) pages.
 
 Set `LUMEN_PASSWORD` to require a password (user name `lumen`). Put `.onnx` AI models in `/DATA/AppData/lumen-vr-player/models`.
